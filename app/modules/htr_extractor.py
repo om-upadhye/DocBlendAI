@@ -19,7 +19,7 @@ import numpy as np
 from PIL import Image
 
 from app.config import settings
-from app.modules.pdf_render import render_pages
+from app.modules.pdf_render import denoise, render_pages
 
 HTR_DPI = 200  # TrOCR resizes each line to 384x384 anyway; higher DPI only slows segmentation
 BATCH_SIZE = 8
@@ -86,11 +86,25 @@ def segment_lines(page: Image.Image) -> list[Image.Image]:
 @lru_cache
 def _load(model_name: str):
     try:
-        from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+        from transformers import (
+            AutoImageProcessor,
+            AutoTokenizer,
+            TrOCRProcessor,
+            VisionEncoderDecoderModel,
+            XLMRobertaTokenizer,
+        )
 
-        processor = TrOCRProcessor.from_pretrained(model_name)
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+        except ValueError:
+            # transformers 5 cannot auto-build trocr-small's legacy SentencePiece
+            # tokenizer config, but the named class loads it fine.
+            tokenizer = XLMRobertaTokenizer.from_pretrained(model_name)
+        processor = TrOCRProcessor(image_processor=AutoImageProcessor.from_pretrained(model_name), tokenizer=tokenizer)
         model = VisionEncoderDecoderModel.from_pretrained(model_name)
-    except OSError as e:
+    # OSError: not downloaded / no internet. ValueError, ImportError: a tokenizer dependency
+    # (e.g. sentencepiece for trocr-small) is missing.
+    except (OSError, ValueError, ImportError) as e:
         raise HTRUnavailableError(f"Could not load HTR model {model_name!r}: {e}") from e
     model.eval()
     return processor, model
@@ -127,15 +141,15 @@ def recognize_lines(lines: list[Image.Image]) -> list[tuple[str, float]]:
 
 def htr_image(page: Image.Image) -> tuple[str, float]:
     """HTR one page image. Returns (text, raw_conf); a page with no lines gives ("", 0.0)."""
-    recognized = [(t, c) for t, c in recognize_lines(segment_lines(page)) if t]
+    recognized = [(t, c) for t, c in recognize_lines(segment_lines(denoise(page))) if t]
     chars = sum(len(t) for t, _ in recognized)
     if not chars:
         return "", 0.0
     return "\n".join(t for t, _ in recognized), sum(c * len(t) for t, c in recognized) / chars
 
 
-def htr_pdf(file_path: str) -> list[tuple[str, float]]:
-    """Return (page_text, raw_conf) for each page."""
+def htr_pdf(file_path: str, max_pages: int | None = None) -> list[tuple[str, float]]:
+    """Return (page_text, raw_conf) for each page (or the first max_pages)."""
     # closing(): release the PDF immediately if HTR fails (see ocr_extractor.ocr_pdf).
-    with closing(render_pages(file_path, HTR_DPI)) as pages:
+    with closing(render_pages(file_path, HTR_DPI, max_pages)) as pages:
         return [htr_image(img) for img in pages]

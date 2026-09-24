@@ -46,9 +46,34 @@ def _tesseract_data(words: list[tuple[str, float, int, int, int]]) -> dict:
 def fake_tesseract(monkeypatch):
     def _install(words):
         monkeypatch.setattr(ocr_extractor, "_tesseract_cmd", lambda configured: "tesseract")
-        monkeypatch.setattr(ocr_extractor.pytesseract, "image_to_data", lambda image, output_type: _tesseract_data(words))
+        monkeypatch.setattr(
+            ocr_extractor.pytesseract, "image_to_data", lambda image, output_type, timeout: _tesseract_data(words)
+        )
 
     return _install
+
+
+def test_ocr_timeout_reads_as_unreadable(monkeypatch) -> None:
+    def _slow(image, output_type, timeout):
+        raise RuntimeError("Tesseract process timeout")
+
+    monkeypatch.setattr(ocr_extractor, "_tesseract_cmd", lambda configured: "tesseract")
+    monkeypatch.setattr(ocr_extractor.pytesseract, "image_to_data", _slow)
+    assert ocr_extractor.ocr_image(Image.new("L", (10, 10))) == ("", 0.0)
+
+
+def test_denoise_removes_speckle_but_keeps_strokes() -> None:
+    from app.modules.pdf_render import denoise
+
+    page = Image.new("L", (200, 100), 255)
+    draw = ImageDraw.Draw(page)
+    draw.rectangle((20, 40, 180, 50), fill=0)  # a stroke
+    for x, y in [(5, 5), (100, 90), (190, 10)]:  # isolated specks
+        page.putpixel((x, y), 0)
+
+    arr = np.asarray(denoise(page))
+    assert arr[45, 100] < 50  # stroke kept
+    assert arr[5, 5] > 200 and arr[90, 100] > 200  # specks gone
 
 
 def test_ocr_rebuilds_lines_and_paragraphs(fake_tesseract) -> None:
@@ -141,9 +166,23 @@ def test_detect_confident_ocr_as_scanned(pdf_file, fake_ocr) -> None:
     assert fake_ocr.calls == format_detection.OCR_SAMPLE_PAGES  # only samples, not every page
 
 
-def test_detect_unconfident_ocr_as_handwritten(pdf_file, fake_ocr) -> None:
+def test_detect_handwriting_when_htr_beats_unconfident_ocr(pdf_file, fake_ocr, fake_htr) -> None:
     fake_ocr.text, fake_ocr.conf = "sc ribb le", 0.31
+    fake_htr.text, fake_htr.conf = "scribble notes", 0.8
     assert format_detection.detect_format(str(pdf_file([""]))) is FormatType.HANDWRITTEN
+
+
+def test_detect_bad_photocopy_stays_scanned(pdf_file, fake_ocr, fake_htr) -> None:
+    # Regression: a poor photocopy OCRs badly, but HTR reads print even worse.
+    fake_ocr.text, fake_ocr.conf = "Regularizat1on adds a pena1ty", 0.45
+    fake_htr.text, fake_htr.conf = "Ruglaiz", 0.1
+    assert format_detection.detect_format(str(pdf_file([""]))) is FormatType.SCANNED
+
+
+def test_detect_confident_ocr_skips_htr(pdf_file, fake_ocr, monkeypatch) -> None:
+    fake_ocr.text, fake_ocr.conf = "Printed words", 0.9
+    monkeypatch.setattr(htr_extractor, "htr_image", lambda image: pytest.fail("HTR should not run"))
+    assert format_detection.detect_format(str(pdf_file([""]))) is FormatType.SCANNED
 
 
 def test_detect_text_layer_skips_ocr(pdf_file, fake_ocr) -> None:
@@ -178,9 +217,19 @@ def test_fit_calibration_bins_and_is_monotonic() -> None:
 
     ys = [y for _, y in knots]
     assert ys == sorted(ys), "calibration must never decrease"
-    assert knots[0] == (0.15, 0.35)  # bin mean
-    assert knots[1] == (0.6, 0.7)  # 0.55->0.80 and 0.65->0.60 pooled
+    assert knots[0] == (0.0, 0.0)  # anchor
+    assert knots[1] == (0.15, 0.35)  # bin mean
+    assert knots[2] == (0.6, 0.7)  # 0.55->0.80 and 0.65->0.60 pooled
     assert knots[-1] == (0.95, 0.97)
+
+
+def test_fit_calibration_with_only_good_samples_keeps_low_scores_low() -> None:
+    # Regression: all-good samples gave a single knot, and interpolation then
+    # mapped an illegible page (raw 0.10) to 0.98.
+    knots = confidence_capture.fit_calibration([(0.94, 0.98), (0.96, 0.99), (0.95, 0.97)], bins=5)
+    confidence_capture.save_calibration(FormatType.HANDWRITTEN, knots)
+
+    assert confidence_capture.calibrate(0.10, FormatType.HANDWRITTEN) < 0.15
 
 
 def test_fit_calibration_needs_samples() -> None:
@@ -269,7 +318,7 @@ def test_retrieval_reports_calibrated_confidence(client, pdf_file, fake_ocr) -> 
 
     fake_ocr.text, fake_ocr.conf = "Scanned notes about optical character recognition text.", 0.8
     confidence_capture.save_calibration(FormatType.SCANNED, [(0.0, 0.0), (1.0, 0.5)])  # halves confidence
-    _upload(client, pdf_file([""]))
+    _upload(client, pdf_file([""]), format_hint="scanned")
 
     [(_, result)] = retrieval.retrieve(Query(query_id="q", question_text="scanned notes", user_id="u"), top_k=5)
 

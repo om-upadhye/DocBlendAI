@@ -77,6 +77,23 @@ def search(query_vector: list[float], top_k: int = 5) -> list[tuple[RecognizedCh
     return results
 
 
+def get_chunks(chunk_ids: list[str]) -> dict[str, RecognizedChunk]:
+    """Fetch stored chunks by id (without vectors). Unknown ids are left out."""
+    if not chunk_ids:
+        return {}
+    res = _get().get(ids=chunk_ids, include=["documents", "metadatas"])
+    return {
+        chunk_id: RecognizedChunk(
+            chunk_id=chunk_id,
+            text=text,
+            content_type=ContentType(meta["content_type"]),
+            raw_conf=meta["raw_conf"],
+            calibrated_conf=meta.get("calibrated_conf"),
+        )
+        for chunk_id, text, meta in zip(res["ids"], res["documents"], res["metadatas"])
+    }
+
+
 def delete_document(doc_id: str) -> None:
     """Remove all chunks of one document."""
     _get().delete(where={"doc_id": doc_id})

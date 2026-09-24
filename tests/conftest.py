@@ -101,6 +101,16 @@ def fake_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_real_htr_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests must never load TrOCR (slow, downloads weights): fake htr_image instead."""
+
+    def _refuse(model_name):
+        pytest.fail("a test tried to load the real TrOCR model; use the fake_htr fixture")
+
+    monkeypatch.setattr(htr_extractor, "_load", _refuse)
+
+
+@pytest.fixture(autouse=True)
 def isolated_calibration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Never read or write the real data/calibration.json."""
     monkeypatch.setattr(settings, "calibration_file", tmp_path / "calibration.json")

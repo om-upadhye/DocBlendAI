@@ -63,10 +63,11 @@ real-time video content.
 FastAPI, ChromaDB, SQLite + SQLAlchemy, Gemini API (LLM + embeddings),
 pytesseract (OCR), TrOCR/transformers (HTR), jiwer (CER/WER eval)
 
-`requirements.txt` currently lists only python-dotenv, google-generativeai,
-torch, transformers, pillow — add the rest (fastapi, uvicorn, chromadb,
-sqlalchemy, pytesseract, jiwer, …) as each build step needs them.
-pytesseract also requires the Tesseract binary installed on the system.
+Gemini is called through the `google-genai` SDK (the older `google-generativeai`
+is deprecated): `gemini-embedding-001` for embeddings, `gemini-3.5-flash` for
+answers (both overridable in `.env`). pytesseract also requires the Tesseract
+binary installed on the system (`winget install UB-Mannheim.TesseractOCR`).
+See CONTRIBUTING.md for team setup and workflow.
 
 ## Environment & commands
 

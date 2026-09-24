@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocBlendAI</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #e1e5ec;
+    --accent: #3056d3; --accent-text: #ffffff; --soft: #eef2fb;
+    --certain: #17804a; --certain-bg: #e3f5eb;
+    --moderate: #9a6100; --moderate-bg: #fdf1dc;
+    --uncertain: #7a4ec2; --uncertain-bg: #efe8fa;
+    --unreadable: #c0392b; --unreadable-bg: #fbe7e4;
+    --error: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b1f27; --text: #e6e9ef; --muted: #9aa3b2; --line: #2c323d;
+      --accent: #6d8cf0; --accent-text: #0e1117; --soft: #232a3a;
+      --certain: #5fd394; --certain-bg: #173326;
+      --moderate: #f0b858; --moderate-bg: #3a2c12;
+      --uncertain: #b99cf0; --uncertain-bg: #2b2340;
+      --unreadable: #f08a7e; --unreadable-bg: #3d1f1b;
+      --error: #f08a7e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 20px 24px 8px; max-width: 1200px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+  header p { margin: 2px 0 0; color: var(--muted); }
+  main { max-width: 1200px; margin: 0 auto; padding: 16px 24px 40px;
+         display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px 16px 32px; } header { padding: 16px 16px 4px; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .panel h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+  label.small { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  select, textarea, input[type=file] { width: 100%; font: inherit; color: var(--text); background: var(--bg);
+         border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  textarea { resize: vertical; min-height: 72px; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer;
+           background: var(--accent); color: var(--accent-text); }
+  button:disabled { opacity: 0.55; cursor: progress; }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  .status { font-size: 13px; color: var(--muted); }
+  .status.error { color: var(--error); }
+  ul.docs { list-style: none; margin: 14px 0 0; padding: 0; border-top: 1px solid var(--line); }
+  ul.docs li { padding: 9px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; }
+  .docname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; }
+  .empty { color: var(--muted); font-size: 14px; padding: 10px 0 0; }
+  .answer { margin-top: 16px; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .answer .q { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+  .answer .text { font-size: 16px; white-space: pre-wrap; }
+  .badge { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+           padding: 2px 10px; border-radius: 999px; margin-right: 8px; }
+  .badge.Certain { color: var(--certain); background: var(--certain-bg); }
+  .badge.Moderate { color: var(--moderate); background: var(--moderate-bg); }
+  .badge.Uncertain { color: var(--uncertain); background: var(--uncertain-bg); }
+  .badge.Unreadable { color: var(--unreadable); background: var(--unreadable-bg); }
+  .why { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; font-size: 13px; color: var(--accent); }
+  .source { border-top: 1px dashed var(--line); padding: 10px 0 2px; font-size: 13px; }
+  .source .meta { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .source pre { margin: 0; white-space: pre-wrap; font: 13px/1.45 ui-monospace, Consolas, monospace;
+                background: var(--bg); border-radius: 6px; padding: 8px; max-height: 160px; overflow: auto; }
+  .bar { display: inline-flex; align-items: center; gap: 6px; }
+  .bar i { display: inline-block; width: 60px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .bar i b { display: block; height: 100%; background: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>DocBlendAI</h1>
+  <p>Ask questions about typed, scanned, and handwritten academic PDFs. Every answer says how far to trust it.</p>
+</header>
+<main>
+  <section class="panel" aria-labelledby="docs-title">
+    <h2 id="docs-title">Documents</h2>
+    <form id="upload-form">
+      <input type="file" id="file" accept="application/pdf,.pdf" required>
+      <label class="small" for="hint">Format</label>
+      <select id="hint">
+        <option value="">Detect automatically</option>
+        <option value="typed">Typed (has a text layer)</option>
+        <option value="scanned">Scanned / printed</option>
+        <option value="handwritten">Handwritten</option>
+      </select>
+      <div class="row">
+        <button type="submit" id="upload-btn">Upload</button>
+        <span class="status" id="upload-status" role="status"></span>
+      </div>
+    </form>
+    <ul class="docs" id="docs"></ul>
+  </section>
+
+  <section class="panel" aria-labelledby="ask-title">
+    <h2 id="ask-title">Ask a question</h2>
+    <form id="ask-form">
+      <textarea id="question" placeholder="e.g. What does second normal form remove?" required></textarea>
+      <div class="row">
+        <button type="submit" id="ask-btn">Ask</button>
+        <span class="status" id="ask-status" role="status"></span>
+      </div>
+    </form>
+    <div id="answers"></div>
+  </section>
+</main>
+
+<script>
+const WHY = {
+  Certain: "Strong match in clearly readable text.",
+  Moderate: "Relevant text found, but the match was looser or the text was only partly legible.",
+  Uncertain: "No strong supporting passage. Check the source before relying on this.",
+  Unreadable: "The relevant passage could not be read reliably (poor scan or handwriting).",
+};
+const FORMAT_LABEL = { typed: "typed", scanned: "scanned", handwritten: "handwritten" };
+
+// The server stores uploads as "<doc_id>_<original name>.pdf"; recover the name from file_path.
+const docNames = {};
+function nameFromPath(doc) {
+  const base = doc.file_path.split(/[\\/]/).pop().replace(/\.pdf$/i, "");
+  return base.startsWith(doc.doc_id + "_") ? base.slice(doc.doc_id.length + 1) + ".pdf" : base + ".pdf";
+}
+function docLabel(id) { return docNames[id] || id.slice(0, 8); }
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) k === "class" ? (node.className = v) : node.setAttribute(k, v);
+  for (const c of children) node.append(c);
+  return node;
+}
+
+async function api(path, options) {
+  const resp = await fetch(path, options);
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(typeof body.detail === "string" ? body.detail : `Request failed (${resp.status})`);
+  return body;
+}
+
+async function loadDocs() {
+  const list = document.getElementById("docs");
+  const docs = await api("/documents");
+  list.replaceChildren();
+  if (!docs.length) { list.append(el("li", { class: "empty" }, "No documents yet. Upload a PDF to start.")); return; }
+  for (const d of docs) {
+    docNames[d.doc_id] = nameFromPath(d);
+    list.append(el("li", {},
+      el("span", { class: "docname", title: d.doc_id }, docLabel(d.doc_id)),
+      el("span", { class: "chip" }, `${FORMAT_LABEL[d.format_type]} · ${d.page_count} p`)));
+  }
+}
+
+document.getElementById("upload-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const file = document.getElementById("file").files[0];
+  if (!file) return;
+  const status = document.getElementById("upload-status"), btn = document.getElementById("upload-btn");
+  const form = new FormData();
+  form.append("file", file);
+  const hint = document.getElementById("hint").value;
+  if (hint) form.append("format_hint", hint);
+  btn.disabled = true; status.className = "status";
+  status.textContent = "Reading… scanned and handwritten pages can take a minute.";
+  try {
+    const doc = await api("/upload", { method: "POST", body: form });
+    status.textContent = `Added as ${doc.format_type}, ${doc.page_count} page(s).`;
+    e.target.reset();
+    await loadDocs();
+  } catch (err) {
+    status.className = "status error"; status.textContent = err.message;
+  } finally { btn.disabled = false; }
+});
+
+function sourceView(s) {
+  const bar = (label, v) => el("span", { class: "bar" }, label,
+    Object.assign(el("i"), { innerHTML: `<b style="width:${Math.round(v * 100)}%"></b>` }), v.toFixed(2));
+  return el("div", { class: "source" },
+    el("div", { class: "meta" },
+      el("span", { class: "chip" }, docLabel(s.doc_id)),
+      el("span", { class: "chip" }, s.content_type),
+      bar("match", s.similarity), bar("legibility", s.confidence)),
+    el("pre", {}, s.text));
+}
+
+document.getElementById("ask-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const question = document.getElementById("question").value.trim();
+  if (!question) return;
+  const status = document.getElementById("ask-status"), btn = document.getElementById("ask-btn");
+  btn.disabled = true; status.className = "status"; status.textContent = "Thinking…";
+  try {
+    const answer = await api("/ask", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query_id: crypto.randomUUID(), question_text: question, user_id: "web" }),
+    });
+    const sources = await api(`/answer/${answer.answer_id}/sources`);
+    const label = answer.reliability_label;
+    const card = el("article", { class: "answer" },
+      el("div", { class: "q" }, question),
+      el("div", {}, el("span", { class: `badge ${label}` }, label)),
+      el("div", { class: "text" }, answer.answer_text),
+      el("div", { class: "why" }, WHY[label]));
+    if (sources.length) {
+      const details = el("details", {}, el("summary", {}, `Sources (${sources.length})`));
+      sources.forEach((s) => details.append(sourceView(s)));
+      card.append(details);
+    }
+    document.getElementById("answers").prepend(card);
+    status.textContent = "";
+    document.getElementById("question").value = "";
+  } catch (err) {
+    status.className = "status error"; status.textContent = err.message;
+  } finally { btn.disabled = false; }
+});
+
+loadDocs().catch((err) => {
+  const s = document.getElementById("upload-status"); s.className = "status error"; s.textContent = err.message;
+});
+</script>
+</body>
+</html>

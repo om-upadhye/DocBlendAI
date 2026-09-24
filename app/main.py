@@ -10,11 +10,16 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.db.database import init_db
 from app.routers import query, upload
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 # Uvicorn only configures its own loggers; this makes app.* INFO logs visible too.
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s - %(message)s")
@@ -42,3 +47,9 @@ app.include_router(query.router)
 @app.get("/health", tags=["system"])
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/", include_in_schema=False)
+def frontend() -> FileResponse:
+    """Demo UI: upload documents, ask questions, see reliability labels and sources."""
+    return FileResponse(STATIC_DIR / "index.html")

@@ -47,6 +47,7 @@ def test_module1_upload_saves_document(client, pdf_file, db_session_factory) -> 
     assert doc.format_type is FormatType.TYPED
     assert doc.page_count == 2
     assert Path(doc.file_path).is_file()
+    assert Path(doc.file_path).name == f"{doc.doc_id}_notes.pdf"  # original name kept for the UI
     with db_session_factory() as db:
         assert db.get(DocumentORM, doc.doc_id) is not None
 
@@ -101,7 +102,7 @@ def test_module2_detects_typed_pdf(pdf_file) -> None:
     assert format_detection.detect_format(str(pdf_file([TYPED_PAGE]))) is FormatType.TYPED
 
 
-def test_module2_pdf_without_text_is_not_typed(pdf_file, fake_ocr) -> None:
+def test_module2_pdf_without_text_is_not_typed(pdf_file, fake_ocr, fake_htr) -> None:
     assert format_detection.detect_format(str(pdf_file(["", "", TYPED_PAGE]))) is not FormatType.TYPED
 
 
@@ -478,3 +479,33 @@ def test_ask_returns_502_and_stores_nothing_when_llm_fails(client, pdf_file, mon
 
 def test_get_unknown_answer_is_404(client) -> None:
     assert client.get("/answer/does-not-exist").status_code == 404
+    assert client.get("/answer/does-not-exist/sources").status_code == 404
+
+
+def test_answer_sources_show_text_and_scores(client, pdf_file, fake_llm) -> None:
+    doc_id = _upload(client, pdf_file)
+    answer = _ask(client, "What does the retriever select?").json()
+
+    sources = client.get(f"/answer/{answer['answer_id']}/sources").json()
+
+    assert sources, "the answer should list the chunks it was built from"
+    top = sources[0]
+    assert top["doc_id"] == doc_id
+    assert "Retrieval-Augmented Generation" in top["text"]
+    assert top["content_type"] == "paragraph"
+    assert top["confidence"] == 1.0
+    scores = [s["combined_score"] for s in sources]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_list_documents(client, pdf_file) -> None:
+    assert client.get("/documents").json() == []
+    doc_id = _upload(client, pdf_file)
+    [doc] = client.get("/documents").json()
+    assert doc["doc_id"] == doc_id and doc["format_type"] == "typed"
+
+
+def test_frontend_is_served(client) -> None:
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "DocBlendAI" in resp.text and "/ask" in resp.text
