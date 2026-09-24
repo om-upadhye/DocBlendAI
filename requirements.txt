@@ -3,3 +3,14 @@ google-generativeai
 torch
 transformers
 pillow
+fastapi
+uvicorn
+python-multipart
+chromadb
+sqlalchemy
+pydantic-settings
+pytesseract
+pdfplumber
+PyPDF2
+jiwer
+pytest
