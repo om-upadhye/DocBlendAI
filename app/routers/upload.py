@@ -2,7 +2,8 @@
 
 Responsibility: accept a PDF upload, save it under settings.upload_dir, run
 it through detection -> extraction (parse/OCR/HTR) -> chunking ->
-calibration -> embedding -> ChromaDB, and record a Document row.
+calibration -> content-type labeling -> embedding -> ChromaDB, and record a
+Document row.
 
 Uses from schemas.py: Document, FormatType.
 """
@@ -23,6 +24,7 @@ from app.models.schemas import Document, FormatType
 from app.modules import (
     chunker,
     confidence_capture,
+    content_type,
     embedder,
     format_detection,
     htr_extractor,
@@ -64,7 +66,7 @@ def upload_document(
 
 
 def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session) -> Document:
-    """Detect -> extract -> chunk -> calibrate -> embed -> store. Raises HTTPException on expected failures."""
+    """Detect -> extract -> chunk -> calibrate -> label -> embed -> store. Raises HTTPException on expected failures."""
     try:
         pages = format_detection.page_count(str(path))
         format_type = format_hint or format_detection.detect_format(str(path))
@@ -83,6 +85,7 @@ def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session
     if not chunks:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No readable text found in this PDF")
     chunks = confidence_capture.apply_calibration(chunks, format_type)
+    chunks = content_type.label_chunks(chunks)
 
     try:
         chunks = embedder.embed_chunks(chunks)

@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     embedding_dim: int = 768
     llm_model: str = "gemini-3.5-flash"
     top_k: int = 5  # chunks retrieved per question
+    # combined_score = w * similarity + (1 - w) * calibrated confidence. Relevance dominates:
+    # a clearly-read but off-topic chunk should not outrank a relevant, less legible one.
+    similarity_weight: float = 0.7
+    # Re-ranking pool: fetch top_k * this many by similarity, then re-sort by combined_score.
+    candidate_multiplier: int = 3
 
     # OCR / HTR (build step 4)
     tesseract_cmd: str = ""  # path to tesseract.exe if it is not on PATH
