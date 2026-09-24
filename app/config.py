@@ -17,6 +17,9 @@ class Settings(BaseSettings):
 
     # Empty default keeps the app bootable without a key; Gemini calls will fail until it is set.
     gemini_api_key: str = ""
+    # gemini-embedding-001 (not -2): -2 merges a list of texts into ONE vector instead of one per text.
+    embedding_model: str = "gemini-embedding-001"
+    embedding_dim: int = 768
 
     database_url: str = f"sqlite:///{(DATA_DIR / 'docblendai.db').as_posix()}"
     chroma_dir: Path = DATA_DIR / "chroma_db"
