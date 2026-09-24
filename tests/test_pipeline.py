@@ -65,10 +65,12 @@ def test_module1_rejects_corrupt_pdf_and_cleans_up(client, tmp_path) -> None:
     assert not any((tmp_path / "uploads").iterdir())
 
 
-def test_module1_rejects_pdf_without_text_layer(client, pdf_file, tmp_path) -> None:
+def test_module1_rejects_pdf_with_no_readable_text(client, pdf_file, tmp_path, fake_ocr, fake_htr) -> None:
+    # No text layer, and neither OCR nor HTR finds anything (e.g. blank pages).
     with pdf_file(["", ""]).open("rb") as f:
-        resp = client.post("/upload", files={"file": ("scan.pdf", f, "application/pdf")})
+        resp = client.post("/upload", files={"file": ("blank.pdf", f, "application/pdf")})
     assert resp.status_code == 422
+    assert "No readable text" in resp.json()["detail"]
     assert not any((tmp_path / "uploads").iterdir())
 
 
@@ -79,7 +81,7 @@ def test_module2_detects_typed_pdf(pdf_file) -> None:
     assert format_detection.detect_format(str(pdf_file([TYPED_PAGE]))) is FormatType.TYPED
 
 
-def test_module2_pdf_without_text_is_not_typed(pdf_file) -> None:
+def test_module2_pdf_without_text_is_not_typed(pdf_file, fake_ocr) -> None:
     assert format_detection.detect_format(str(pdf_file(["", "", TYPED_PAGE]))) is not FormatType.TYPED
 
 
@@ -264,11 +266,6 @@ def test_module5_upload_rolls_back_when_embedding_fails(client, pdf_file, tmp_pa
 
 
 # --- Modules 3-7: not built yet --------------------------------------------
-
-
-@not_built
-def test_module3_confidence_calibration() -> None:
-    """Module 3: calibrated_conf is in [0, 1] and monotonic in raw_conf."""
 
 
 @not_built

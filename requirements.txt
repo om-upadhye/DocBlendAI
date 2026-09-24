@@ -15,3 +15,5 @@ PyPDF2
 jiwer
 pytest
 httpx2
+pypdfium2
+numpy

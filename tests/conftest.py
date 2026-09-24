@@ -5,6 +5,7 @@ import textwrap
 import zlib
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,7 +16,7 @@ from app.config import settings
 from app.db import models  # noqa: F401  (registers tables on Base.metadata)
 from app.db.database import Base, get_db
 from app.main import app
-from app.modules import embedder, vector_store
+from app.modules import confidence_capture, embedder, htr_extractor, ocr_extractor, vector_store
 
 
 def make_pdf(pages: list[str]) -> bytes:
@@ -97,6 +98,36 @@ def fake_embed(texts: list[str], task_type: str) -> list[list[float]]:
 def fake_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Route all embedding calls to fake_embed (no network, no API key needed)."""
     monkeypatch.setattr(embedder, "_embed", fake_embed)
+
+
+@pytest.fixture(autouse=True)
+def isolated_calibration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Never read or write the real data/calibration.json."""
+    monkeypatch.setattr(settings, "calibration_file", tmp_path / "calibration.json")
+    confidence_capture._tables.cache_clear()
+    yield
+    confidence_capture._tables.cache_clear()
+
+
+@pytest.fixture
+def fake_ocr(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """Replace Tesseract: every page image OCRs to (fake.text, fake.conf)."""
+    fake = SimpleNamespace(text="", conf=0.0, calls=0)
+
+    def _ocr_image(image):
+        fake.calls += 1
+        return fake.text, fake.conf
+
+    monkeypatch.setattr(ocr_extractor, "ocr_image", _ocr_image)
+    return fake
+
+
+@pytest.fixture
+def fake_htr(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """Replace TrOCR: every page image reads as (fake.text, fake.conf)."""
+    fake = SimpleNamespace(text="", conf=0.0)
+    monkeypatch.setattr(htr_extractor, "htr_image", lambda image: (fake.text, fake.conf))
+    return fake
 
 
 @pytest.fixture

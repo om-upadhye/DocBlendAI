@@ -1,12 +1,141 @@
 """Module 2 — HTR path (handwritten PDFs).
 
-Responsibility: segment pages into lines and run TrOCR (transformers),
-returning page text plus a sequence-probability confidence (0-1) as raw_conf.
+Responsibility: split each page into text lines and run TrOCR (transformers)
+on them, returning page text plus a confidence (0-1) as raw_conf for Module 3.
+
+TrOCR reads one line at a time, so pages are segmented first with a
+horizontal ink-projection profile. A line's confidence is the geometric mean
+of its generated tokens' probabilities; the page's raw_conf is the mean of
+its lines' confidences weighted by line length.
 
 Uses from schemas.py: nothing directly; output feeds chunker.py -> RecognizedChunk.
 """
 
+import math
+from contextlib import closing
+from functools import lru_cache
+
+import numpy as np
+from PIL import Image
+
+from app.config import settings
+from app.modules.pdf_render import render_pages
+
+HTR_DPI = 200  # TrOCR resizes each line to 384x384 anyway; higher DPI only slows segmentation
+BATCH_SIZE = 8
+MAX_LINE_TOKENS = 64
+
+# Line segmentation, as fractions of page height / width.
+MIN_INK_ROW_FRACTION = 0.005  # a row counts as text if this share of its pixels is ink
+MIN_LINE_HEIGHT = 0.008
+MERGE_GAP = 0.004  # bands closer than this are one line (ascenders/descenders, i-dots)
+PAD = 0.006
+
+
+class HTRUnavailableError(RuntimeError):
+    """The TrOCR model could not be loaded (e.g. not downloaded and no internet)."""
+
+
+def _otsu_threshold(gray: np.ndarray) -> int:
+    hist = np.bincount(gray.ravel(), minlength=256).astype(float)
+    total = gray.size
+    cum_count = np.cumsum(hist)
+    cum_sum = np.cumsum(hist * np.arange(256))
+    best_t, best_var = 0, -1.0
+    for t in range(255):
+        w0 = cum_count[t]
+        w1 = total - w0
+        if w0 == 0 or w1 == 0:
+            continue
+        m0 = cum_sum[t] / w0
+        m1 = (cum_sum[-1] - cum_sum[t]) / w1
+        var = w0 * w1 * (m0 - m1) ** 2
+        if var > best_var:
+            best_t, best_var = t, var
+    return best_t
+
+
+def segment_lines(page: Image.Image) -> list[Image.Image]:
+    """Crop a page image into text-line images, top to bottom."""
+    gray = np.asarray(page.convert("L"))
+    h, w = gray.shape
+    ink = gray <= _otsu_threshold(gray)
+    if ink.mean() > 0.5:  # mostly "ink" means a blank or inverted page
+        return []
+
+    text_rows = ink.sum(axis=1) >= max(1, MIN_INK_ROW_FRACTION * w)
+    bands: list[list[int]] = []
+    for y in np.flatnonzero(text_rows):
+        if bands and y - bands[-1][1] <= max(1, MERGE_GAP * h):
+            bands[-1][1] = y
+        else:
+            bands.append([y, y])
+
+    pad_y, pad_x = int(PAD * h), int(PAD * w)
+    lines = []
+    for top, bottom in bands:
+        if bottom - top + 1 < MIN_LINE_HEIGHT * h:
+            continue
+        cols = np.flatnonzero(ink[top : bottom + 1].any(axis=0))
+        left, right = cols[0], cols[-1]
+        box = (max(0, left - pad_x), max(0, top - pad_y), min(w, right + pad_x + 1), min(h, bottom + pad_y + 1))
+        lines.append(page.crop(box))
+    return lines
+
+
+@lru_cache
+def _load(model_name: str):
+    try:
+        from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+
+        processor = TrOCRProcessor.from_pretrained(model_name)
+        model = VisionEncoderDecoderModel.from_pretrained(model_name)
+    except OSError as e:
+        raise HTRUnavailableError(f"Could not load HTR model {model_name!r}: {e}") from e
+    model.eval()
+    return processor, model
+
+
+def recognize_lines(lines: list[Image.Image]) -> list[tuple[str, float]]:
+    """Run TrOCR on line images. Returns (text, confidence) per line."""
+    import torch  # imported lazily: torch is slow to import and only this path needs it
+
+    processor, model = _load(settings.htr_model)
+    pad_id = model.generation_config.pad_token_id
+    results: list[tuple[str, float]] = []
+    for i in range(0, len(lines), BATCH_SIZE):
+        batch = [img.convert("RGB") for img in lines[i : i + BATCH_SIZE]]
+        pixel_values = processor(images=batch, return_tensors="pt").pixel_values
+        with torch.no_grad():
+            out = model.generate(
+                pixel_values,
+                max_new_tokens=MAX_LINE_TOKENS,
+                num_beams=1,
+                output_scores=True,
+                return_dict_in_generate=True,
+            )
+        logprobs = model.compute_transition_scores(out.sequences, out.scores, normalize_logits=True)
+        generated = out.sequences[:, 1:]  # drop the decoder start token
+        texts = processor.batch_decode(out.sequences, skip_special_tokens=True)
+        for text, lp, tokens in zip(texts, logprobs, generated):
+            # Ignore padding after EOS in shorter sequences.
+            real = tokens != pad_id if pad_id is not None else torch.ones_like(tokens, dtype=torch.bool)
+            conf = math.exp(lp[real].mean().item()) if real.any() else 0.0
+            results.append((text.strip(), conf))
+    return results
+
+
+def htr_image(page: Image.Image) -> tuple[str, float]:
+    """HTR one page image. Returns (text, raw_conf); a page with no lines gives ("", 0.0)."""
+    recognized = [(t, c) for t, c in recognize_lines(segment_lines(page)) if t]
+    chars = sum(len(t) for t, _ in recognized)
+    if not chars:
+        return "", 0.0
+    return "\n".join(t for t, _ in recognized), sum(c * len(t) for t, c in recognized) / chars
+
 
 def htr_pdf(file_path: str) -> list[tuple[str, float]]:
     """Return (page_text, raw_conf) for each page."""
-    raise NotImplementedError("TODO (build step 4): TrOCR handwriting recognition")
+    # closing(): release the PDF immediately if HTR fails (see ocr_extractor.ocr_pdf).
+    with closing(render_pages(file_path, HTR_DPI)) as pages:
+        return [htr_image(img) for img in pages]
