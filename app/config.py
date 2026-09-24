@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # gemini-embedding-001 (not -2): -2 merges a list of texts into ONE vector instead of one per text.
     embedding_model: str = "gemini-embedding-001"
     embedding_dim: int = 768
+    llm_model: str = "gemini-3.5-flash"
+    top_k: int = 5  # chunks retrieved per question
 
     database_url: str = f"sqlite:///{(DATA_DIR / 'docblendai.db').as_posix()}"
     chroma_dir: Path = DATA_DIR / "chroma_db"

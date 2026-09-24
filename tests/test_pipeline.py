@@ -11,9 +11,26 @@ import pytest
 from google.genai import errors as genai_errors
 
 from app.config import settings
-from app.db.models import DocumentORM
-from app.models.schemas import Document, FormatType, RecognizedChunk
-from app.modules import chunker, embedder, format_detection, text_parser, vector_store
+from app.db.models import AnswerORM, DocumentORM, QueryORM, RetrievalResultORM
+from app.models.schemas import (
+    Answer,
+    Document,
+    FormatType,
+    Query,
+    RecognizedChunk,
+    ReliabilityLabel,
+    RetrievalResult,
+)
+from app.modules import (
+    chunker,
+    embedder,
+    format_detection,
+    llm_answer,
+    reliability,
+    retrieval,
+    text_parser,
+    vector_store,
+)
 from tests.conftest import TYPED_PAGE, fake_embed
 
 not_built = pytest.mark.skip(reason="module not implemented yet")
@@ -264,11 +281,194 @@ def test_module5_confidence_aware_retrieval() -> None:
     """Module 5: results are ranked by combined_score (build step 5)."""
 
 
-@not_built
-def test_module6_reliability_tiers() -> None:
-    """Module 6: scores map to Certain/Moderate/Uncertain/Unreadable."""
+# --- Module 5: retrieval (build step 3) -------------------------------------
 
 
-@not_built
-def test_module7_llm_answer_generation() -> None:
-    """Module 7: POST /ask returns an Answer with a reliability_label."""
+def test_module5_retrieve_ranks_by_similarity(chroma, fake_embeddings) -> None:
+    vector_store.add_chunks("doc", _embedded("doc", ["transformers use attention", "tesseract ocr confidence"], 1.0))
+
+    hits = retrieval.retrieve(_query("tesseract ocr confidence"), top_k=2)
+
+    assert [c.chunk_id for c, _ in hits] == ["doc:1", "doc:0"]
+    result = hits[0][1]
+    assert result.combined_score == result.similarity  # step 3: similarity only
+    assert result.confidence == 1.0
+
+
+def test_module5_retrieve_on_empty_store_returns_nothing(chroma, fake_embeddings) -> None:
+    assert retrieval.retrieve(_query("anything"), top_k=5) == []
+
+
+# --- Module 6: reliability tiers (interim, build step 3) --------------------
+
+
+def _result(score: float) -> RetrievalResult:
+    return RetrievalResult(chunk_id="c", similarity=score, confidence=1.0, combined_score=score)
+
+
+@pytest.mark.parametrize(
+    ("best", "expected"),
+    [
+        (0.80, ReliabilityLabel.CERTAIN),
+        (reliability.CERTAIN_MIN, ReliabilityLabel.CERTAIN),
+        (0.70, ReliabilityLabel.MODERATE),
+        (0.50, ReliabilityLabel.UNCERTAIN),
+    ],
+)
+def test_module6_tier_from_best_score(best, expected) -> None:
+    assert reliability.classify_reliability([_result(0.3), _result(best)]) is expected
+
+
+def test_module6_no_results_is_uncertain() -> None:
+    assert reliability.classify_reliability([]) is ReliabilityLabel.UNCERTAIN
+
+
+def test_module6_worse_of() -> None:
+    assert reliability.worse_of(ReliabilityLabel.CERTAIN, ReliabilityLabel.UNCERTAIN) is ReliabilityLabel.UNCERTAIN
+    assert reliability.worse_of(ReliabilityLabel.UNREADABLE, ReliabilityLabel.UNCERTAIN) is ReliabilityLabel.UNREADABLE
+
+
+# --- Module 7: answer generation --------------------------------------------
+
+
+@pytest.fixture
+def fake_llm(monkeypatch: pytest.MonkeyPatch):
+    """Replace the Gemini call; set .reply to control the answer, read .prompts to inspect calls."""
+    fake = SimpleNamespace(reply="RAG grounds answers in retrieved passages.", prompts=[])
+
+    def _generate(prompt: str) -> str:
+        fake.prompts.append(prompt)
+        return fake.reply
+
+    monkeypatch.setattr(llm_answer, "_generate", _generate)
+    return fake
+
+
+def _query(text: str, query_id: str = "q1") -> Query:
+    return Query(query_id=query_id, question_text=text, user_id="u1")
+
+
+def _chunk(text: str) -> RecognizedChunk:
+    return RecognizedChunk(chunk_id="doc:0", text=text, raw_conf=1.0)
+
+
+def test_module7_prompt_contains_question_and_numbered_passages(fake_llm) -> None:
+    answer = llm_answer.generate_answer(
+        _query("What is RAG?"), [_chunk("RAG retrieves passages."), _chunk("OCR reads scans.")], ReliabilityLabel.CERTAIN
+    )
+
+    assert answer.answer_text == fake_llm.reply
+    assert answer.reliability_label is ReliabilityLabel.CERTAIN
+    prompt = fake_llm.prompts[0]
+    assert "[1] RAG retrieves passages." in prompt and "[2] OCR reads scans." in prompt
+    assert "Question: What is RAG?" in prompt
+
+
+def test_module7_not_found_lowers_label_to_uncertain(fake_llm) -> None:
+    fake_llm.reply = llm_answer.NOT_FOUND
+    answer = llm_answer.generate_answer(_query("Who founded it?"), [_chunk("Unrelated.")], ReliabilityLabel.CERTAIN)
+
+    assert answer.answer_text == llm_answer.NOT_FOUND_ANSWER
+    assert answer.reliability_label is ReliabilityLabel.UNCERTAIN
+
+
+def test_module7_no_chunks_skips_llm(fake_llm) -> None:
+    answer = llm_answer.generate_answer(_query("Anything?"), [], ReliabilityLabel.UNCERTAIN)
+
+    assert answer.answer_text == llm_answer.NO_DOCUMENTS_ANSWER
+    assert fake_llm.prompts == []
+
+
+class _FlakyGenaiClient:
+    def __init__(self, codes: list[int]) -> None:
+        self.codes = list(codes)  # error codes to raise, in order, before succeeding
+        self.calls = 0
+        self.models = self
+
+    def generate_content(self, model, contents, config):
+        self.calls += 1
+        if self.codes:
+            raise genai_errors.APIError(self.codes.pop(0), {"error": {"message": "err"}})
+        return SimpleNamespace(text=" An answer. ")
+
+
+def _install_flaky(monkeypatch, codes: list[int]) -> _FlakyGenaiClient:
+    fake = _FlakyGenaiClient(codes)
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr(llm_answer, "_client", lambda api_key: fake)
+    monkeypatch.setattr(llm_answer.time, "sleep", lambda s: None)
+    return fake
+
+
+def test_module7_retries_overloaded_model(monkeypatch) -> None:
+    fake = _install_flaky(monkeypatch, [503, 429])
+    assert llm_answer._generate("prompt") == "An answer."
+    assert fake.calls == 3
+
+
+def test_module7_gives_up_after_max_attempts(monkeypatch) -> None:
+    _install_flaky(monkeypatch, [503, 503, 503])
+    with pytest.raises(llm_answer.LLMError):
+        llm_answer._generate("prompt")
+
+
+def test_module7_does_not_retry_client_errors(monkeypatch) -> None:
+    fake = _install_flaky(monkeypatch, [400])
+    with pytest.raises(llm_answer.LLMError):
+        llm_answer._generate("prompt")
+    assert fake.calls == 1
+
+
+# --- /ask end to end (Modules 5-7) -----------------------------------------
+
+
+def _upload(client, pdf_file) -> str:
+    with pdf_file([TYPED_PAGE]).open("rb") as f:
+        return client.post("/upload", files={"file": ("notes.pdf", f, "application/pdf")}).json()["doc_id"]
+
+
+def _ask(client, question: str, query_id: str = "q1"):
+    return client.post("/ask", json={"query_id": query_id, "question_text": question, "user_id": "u1"})
+
+
+def test_ask_answers_and_stores_everything(client, pdf_file, fake_llm, db_session_factory) -> None:
+    doc_id = _upload(client, pdf_file)
+
+    resp = _ask(client, "What does the retriever select?")
+
+    assert resp.status_code == 200
+    answer = Answer.model_validate(resp.json())
+    assert answer.answer_text == fake_llm.reply
+    assert "Retrieval-Augmented Generation" in fake_llm.prompts[0]
+    with db_session_factory() as db:
+        assert db.get(QueryORM, "q1").question_text == "What does the retriever select?"
+        assert db.get(AnswerORM, answer.answer_id).query_id == "q1"
+        rows = db.query(RetrievalResultORM).filter_by(query_id="q1").all()
+        assert rows and all(r.chunk_id.startswith(f"{doc_id}:") for r in rows)
+
+    fetched = client.get(f"/answer/{answer.answer_id}")
+    assert fetched.status_code == 200
+    assert Answer.model_validate(fetched.json()) == answer
+
+
+def test_ask_rejects_duplicate_query_id(client, pdf_file, fake_llm) -> None:
+    _upload(client, pdf_file)
+    assert _ask(client, "First?").status_code == 200
+    assert _ask(client, "Second?").status_code == 409
+
+
+def test_ask_returns_502_and_stores_nothing_when_llm_fails(client, pdf_file, monkeypatch, db_session_factory) -> None:
+    _upload(client, pdf_file)
+
+    def _fail(prompt):
+        raise llm_answer.LLMError("down")
+
+    monkeypatch.setattr(llm_answer, "_generate", _fail)
+
+    assert _ask(client, "What is RAG?").status_code == 502
+    with db_session_factory() as db:
+        assert db.query(QueryORM).count() == 0
+
+
+def test_get_unknown_answer_is_404(client) -> None:
+    assert client.get("/answer/does-not-exist").status_code == 404
