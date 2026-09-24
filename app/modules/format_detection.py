@@ -8,8 +8,12 @@ Uses from schemas.py: Document, FormatType.
 
 import pdfplumber
 
+from app.config import settings
 from app.models.schemas import Document, FormatType
 from app.modules import htr_extractor, ocr_extractor, text_parser
+
+# Pages OCRed to tell printed scans from handwriting (keeps detection fast on long PDFs).
+OCR_SAMPLE_PAGES = 2
 
 # A page counts as "has a text layer" above this many extracted characters
 # (filters out stray page numbers / headers on scanned pages).
@@ -23,21 +27,35 @@ def page_count(file_path: str) -> int:
         return len(pdf.pages)
 
 
-def detect_format(file_path: str) -> FormatType:
-    """Classify the PDF's format from its text layer.
+def has_text_layer(file_path: str) -> bool:
+    """True if enough pages carry extractable text (i.e. a typed/digital PDF).
 
     Raises pdfplumber's PdfminerException if the file is not a readable PDF.
     """
     with pdfplumber.open(file_path) as pdf:
         pages = pdf.pages
         if not pages:
-            return FormatType.SCANNED
+            return False
         text_pages = sum(len((p.extract_text() or "").strip()) >= MIN_TEXT_CHARS_PER_PAGE for p in pages)
+    return text_pages / len(pages) >= MIN_TEXT_PAGE_RATIO
 
-    if text_pages / len(pages) >= MIN_TEXT_PAGE_RATIO:
+
+def detect_format(file_path: str) -> FormatType:
+    """Classify the PDF as typed, scanned (printed), or handwritten.
+
+    With a text layer it is typed. Otherwise the first OCR_SAMPLE_PAGES are
+    OCRed: Tesseract is confident on printed text and not on handwriting, so
+    a mean confidence at or above settings.scanned_min_ocr_conf means scanned.
+
+    Raises PdfminerException for unreadable PDFs and
+    ocr_extractor.OCRUnavailableError if Tesseract is not installed.
+    """
+    if has_text_layer(file_path):
         return FormatType.TYPED
-    # TODO (build step 4): tell scanned print apart from handwriting (image analysis).
-    return FormatType.SCANNED
+    sample = ocr_extractor.ocr_pdf(file_path, max_pages=OCR_SAMPLE_PAGES)
+    chars = sum(len(text) for text, _ in sample)
+    mean_conf = sum(conf * len(text) for text, conf in sample) / chars if chars else 0.0
+    return FormatType.SCANNED if mean_conf >= settings.scanned_min_ocr_conf else FormatType.HANDWRITTEN
 
 
 def extract(document: Document) -> list[tuple[str, float]]:

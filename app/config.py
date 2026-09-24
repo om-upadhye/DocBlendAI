@@ -23,6 +23,16 @@ class Settings(BaseSettings):
     llm_model: str = "gemini-3.5-flash"
     top_k: int = 5  # chunks retrieved per question
 
+    # OCR / HTR (build step 4)
+    tesseract_cmd: str = ""  # path to tesseract.exe if it is not on PATH
+    ocr_dpi: int = 300
+    # Mean Tesseract confidence (0-1) on a page with no text layer: at or above -> printed scan,
+    # below -> treated as handwriting. First guess; tune on real samples.
+    scanned_min_ocr_conf: float = 0.6
+    # Small model by default: runs on CPU laptops. trocr-base-handwritten is more accurate but ~4x slower.
+    htr_model: str = "microsoft/trocr-small-handwritten"
+    calibration_file: Path = DATA_DIR / "calibration.json"
+
     database_url: str = f"sqlite:///{(DATA_DIR / 'docblendai.db').as_posix()}"
     chroma_dir: Path = DATA_DIR / "chroma_db"
     upload_dir: Path = DATA_DIR / "uploads"
