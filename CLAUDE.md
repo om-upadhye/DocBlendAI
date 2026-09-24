@@ -64,8 +64,9 @@ FastAPI, ChromaDB, SQLite + SQLAlchemy, Gemini API (LLM + embeddings),
 pytesseract (OCR), TrOCR/transformers (HTR), jiwer (CER/WER eval)
 
 Gemini is called through the `google-genai` SDK (the older `google-generativeai`
-is deprecated): `gemini-embedding-001` for embeddings, `gemini-3.5-flash` for
-answers (both overridable in `.env`). pytesseract also requires the Tesseract
+is deprecated): `gemini-embedding-001` for embeddings, `gemini-3.5-flash-lite` for
+answers (both overridable in `.env`; the free tier allows only 20 `gemini-3.5-flash`
+answers per day per project, so flash needs a paid key). pytesseract also requires the Tesseract
 binary installed on the system (`winget install UB-Mannheim.TesseractOCR`).
 See CONTRIBUTING.md for team setup and workflow.
 

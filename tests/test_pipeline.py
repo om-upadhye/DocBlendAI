@@ -317,7 +317,7 @@ def _result(score: float) -> RetrievalResult:
     [
         (0.80, ReliabilityLabel.CERTAIN),
         (reliability.CERTAIN_MIN_SIM, ReliabilityLabel.CERTAIN),
-        (0.70, ReliabilityLabel.MODERATE),
+        (0.62, ReliabilityLabel.MODERATE),
         (0.50, ReliabilityLabel.UNCERTAIN),
     ],
 )
