@@ -1,0 +1,94 @@
+"""Shared test fixtures: an in-memory PDF builder and an isolated API client."""
+
+import textwrap
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.config import settings
+from app.db import models  # noqa: F401  (registers tables on Base.metadata)
+from app.db.database import Base, get_db
+from app.main import app
+
+
+def make_pdf(pages: list[str]) -> bytes:
+    """Build a minimal typed PDF (Helvetica text layer), one string per page.
+
+    An empty string gives a page with no text, i.e. what a scan looks like
+    to a text-layer parser.
+    """
+    n = len(pages)
+    page_ids = [4 + 2 * i for i in range(n)]
+    kids = " ".join(f"{p} 0 R" for p in page_ids)
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {n} >>".encode(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    for page_id, text in zip(page_ids, pages):
+        lines = [w for line in text.splitlines() for w in (textwrap.wrap(line, 80) or [""])]
+        escaped = [line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)") for line in lines]
+        stream = ("BT /F1 11 Tf 14 TL 72 740 Td " + " ".join(f"({line}) Tj T*" for line in escaped) + " ET").encode("latin-1")
+        objs.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 3 0 R >> >> /Contents {page_id + 1} 0 R >>".encode()
+        )
+        objs.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
+
+    out = b"%PDF-1.4\n"
+    offsets = []
+    for i, obj in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n".encode() + obj + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode()
+    out += b"".join(f"{off:010d} 00000 n \n".encode() for off in offsets)
+    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return out
+
+
+TYPED_PAGE = (
+    "Retrieval-Augmented Generation combines a retriever with a language model.\n"
+    "The retriever selects relevant passages and the model answers from them."
+)
+
+
+@pytest.fixture
+def pdf_file(tmp_path: Path):
+    """Write a PDF with the given pages to tmp_path and return its path."""
+
+    def _write(pages: list[str], name: str = "doc.pdf") -> Path:
+        path = tmp_path / name
+        path.write_bytes(make_pdf(pages))
+        return path
+
+    return _write
+
+
+@pytest.fixture
+def db_session_factory(tmp_path: Path) -> sessionmaker[Session]:
+    engine = create_engine(f"sqlite:///{(tmp_path / 'test.db').as_posix()}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    return sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+@pytest.fixture
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, db_session_factory) -> Iterator[TestClient]:
+    """API client using a throwaway SQLite file and upload dir (never touches data/)."""
+    monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
+
+    def _get_test_db() -> Iterator[Session]:
+        db = db_session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = _get_test_db
+    # Not used as a context manager, so the app lifespan (which creates the real DB) does not run.
+    yield TestClient(app)
+    app.dependency_overrides.clear()
