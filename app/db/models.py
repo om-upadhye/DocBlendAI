@@ -6,7 +6,7 @@ ChromaDB (Module 5, vector_store.py).
 """
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import Float, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -34,6 +34,8 @@ class AnswerORM(Base):
     __tablename__ = "answers"
 
     answer_id: Mapped[str] = mapped_column(String, primary_key=True)
+    # Not in the synopsis entity (so not in schemas.py): links the answer to its question.
+    query_id: Mapped[str] = mapped_column(ForeignKey("queries.query_id"), index=True)
     answer_text: Mapped[str] = mapped_column(Text)
     reliability_label: Mapped[ReliabilityLabel] = mapped_column(SAEnum(ReliabilityLabel), index=True)
 
@@ -43,6 +45,8 @@ class RetrievalResultORM(Base):
 
     # Surrogate key: the same chunk_id can be retrieved for many queries, so it cannot be the PK.
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Not in the synopsis entity (so not in schemas.py): which question retrieved this chunk.
+    query_id: Mapped[str] = mapped_column(ForeignKey("queries.query_id"), index=True)
     chunk_id: Mapped[str] = mapped_column(String, index=True)
     similarity: Mapped[float] = mapped_column(Float)
     confidence: Mapped[float] = mapped_column(Float)
