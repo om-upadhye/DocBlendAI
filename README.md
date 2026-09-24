@@ -5,6 +5,8 @@ handwritten academic PDFs and ask questions. Every answer carries a reliability
 tier (Certain / Moderate / Uncertain / Unreadable). See `CLAUDE.md` for full
 project context.
 
+**Team members:** start with [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the Git workflow, and troubleshooting.
+
 ## Setup
 
 1. Python 3.11 virtualenv in `venv/`, then:
