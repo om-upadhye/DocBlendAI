@@ -1,6 +1,8 @@
-"""Shared test fixtures: an in-memory PDF builder and an isolated API client."""
+"""Shared test fixtures: an in-memory PDF builder, fake embeddings, and an isolated API client."""
 
+import re
 import textwrap
+import zlib
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -13,6 +15,7 @@ from app.config import settings
 from app.db import models  # noqa: F401  (registers tables on Base.metadata)
 from app.db.database import Base, get_db
 from app.main import app
+from app.modules import embedder, vector_store
 
 
 def make_pdf(pages: list[str]) -> bytes:
@@ -76,9 +79,39 @@ def db_session_factory(tmp_path: Path) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
+FAKE_DIM = 64
+
+
+def fake_embed(texts: list[str], task_type: str) -> list[list[float]]:
+    """Offline stand-in for Gemini: hashed bag-of-words, so shared words mean higher similarity."""
+    vectors = []
+    for text in texts:
+        v = [0.0] * FAKE_DIM
+        for word in re.findall(r"[a-z]+", text.lower()):
+            v[zlib.crc32(word.encode()) % FAKE_DIM] += 1.0
+        vectors.append(v if any(v) else [1.0] + [0.0] * (FAKE_DIM - 1))
+    return vectors
+
+
 @pytest.fixture
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, db_session_factory) -> Iterator[TestClient]:
-    """API client using a throwaway SQLite file and upload dir (never touches data/)."""
+def fake_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Route all embedding calls to fake_embed (no network, no API key needed)."""
+    monkeypatch.setattr(embedder, "_embed", fake_embed)
+
+
+@pytest.fixture
+def chroma(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Point vector_store at a throwaway ChromaDB directory."""
+    monkeypatch.setattr(settings, "chroma_dir", tmp_path / "chroma")
+    yield
+    vector_store._collection.cache_clear()
+
+
+@pytest.fixture
+def client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, db_session_factory, fake_embeddings, chroma
+) -> Iterator[TestClient]:
+    """API client using a throwaway SQLite file, upload dir, and ChromaDB (never touches data/)."""
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
 
     def _get_test_db() -> Iterator[Session]:

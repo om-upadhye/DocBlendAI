@@ -1,7 +1,8 @@
 """Module 1 — Document Upload.
 
-Responsibility: accept a PDF upload, save it under settings.upload_dir, and
-record a Document row. Format detection is delegated to Module 2.
+Responsibility: accept a PDF upload, save it under settings.upload_dir, run
+it through extraction -> chunking -> embedding -> ChromaDB, and record a
+Document row. Format detection is delegated to Module 2.
 
 Uses from schemas.py: Document, FormatType.
 """
@@ -18,7 +19,7 @@ from app.config import settings
 from app.db.database import get_db
 from app.db.models import DocumentORM
 from app.models.schemas import Document, FormatType
-from app.modules import chunker, format_detection
+from app.modules import chunker, embedder, format_detection, vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +55,22 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
 
     document = Document(doc_id=doc_id, file_path=str(path), format_type=format_type, page_count=pages)
     chunks = chunker.chunk_pages(doc_id, format_detection.extract(document))
-    # TODO (build step 2): embed chunks and store them in ChromaDB via vector_store.add_chunks.
-    logger.info("Uploaded %s (%s): %d pages, %d chunks", file.filename, doc_id, pages, len(chunks))
+    try:
+        chunks = embedder.embed_chunks(chunks)
+    except embedder.EmbeddingError as e:
+        path.unlink(missing_ok=True)
+        logger.error("Embedding failed for %s: %s", doc_id, e)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Embedding service failed; try again later")
+    vector_store.add_chunks(doc_id, chunks)
 
-    db.add(DocumentORM(**document.model_dump()))
-    db.commit()
+    try:
+        db.add(DocumentORM(**document.model_dump()))
+        db.commit()
+    except Exception:
+        # Keep ChromaDB and SQLite consistent: no vectors without a Document row.
+        vector_store.delete_document(doc_id)
+        path.unlink(missing_ok=True)
+        raise
+
+    logger.info("Uploaded %s (%s): %d pages, %d chunks stored", file.filename, doc_id, pages, len(chunks))
     return document
