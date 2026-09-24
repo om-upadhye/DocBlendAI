@@ -25,9 +25,13 @@ SYSTEM_INSTRUCTION = (
     "You answer questions about academic documents. Use only the numbered context "
     "passages provided; never use outside knowledge. Be concise and precise. The user "
     "cannot see the passages, so answer directly without mentioning them, the context, "
-    "or passage numbers. If the "
+    "or passage numbers. Passages marked as recognized text may contain OCR or "
+    "handwriting errors: do not guess at garbled words. If the "
     f"passages do not contain the answer, reply with exactly {NOT_FOUND}."
 )
+
+# Passages below this confidence are flagged to the model as possibly misrecognized.
+LOW_CONFIDENCE = 0.95
 
 # Gemini returns these under load (503) or rate limiting (429); worth a short retry.
 RETRYABLE_CODES = {429, 500, 503}
@@ -43,8 +47,16 @@ def _client(api_key: str) -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
+def _passage_header(i: int, chunk: RecognizedChunk) -> str:
+    notes = [chunk.content_type.value]
+    conf = chunk.calibrated_conf if chunk.calibrated_conf is not None else chunk.raw_conf
+    if conf < LOW_CONFIDENCE:
+        notes.append(f"recognized text, confidence {conf:.2f}: may contain recognition errors")
+    return f"[{i}] ({'; '.join(notes)})"
+
+
 def build_prompt(question: str, chunks: list[RecognizedChunk]) -> str:
-    context = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(chunks, 1))
+    context = "\n\n".join(f"{_passage_header(i, c)}\n{c.text}" for i, c in enumerate(chunks, 1))
     return f"Context passages:\n{context}\n\nQuestion: {question}"
 
 

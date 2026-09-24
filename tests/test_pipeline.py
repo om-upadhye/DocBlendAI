@@ -1,7 +1,7 @@
 """Pipeline tests, grouped by module (1-7).
 
-Modules not built yet are skipped; un-skip and fill in as the build order in
-CLAUDE.md progresses.
+OCR/HTR/calibration tests live in test_ocr_htr_confidence.py; content types,
+confidence-aware ranking, and reliability tiers in test_content_type_reliability.py.
 """
 
 from pathlib import Path
@@ -32,9 +32,6 @@ from app.modules import (
     vector_store,
 )
 from tests.conftest import TYPED_PAGE, fake_embed
-
-not_built = pytest.mark.skip(reason="module not implemented yet")
-
 
 # --- Module 1: Document Upload ---------------------------------------------
 
@@ -72,6 +69,29 @@ def test_module1_rejects_pdf_with_no_readable_text(client, pdf_file, tmp_path, f
     assert resp.status_code == 422
     assert "No readable text" in resp.json()["detail"]
     assert not any((tmp_path / "uploads").iterdir())
+
+
+def test_outdated_database_fails_fast_with_instructions(tmp_path, monkeypatch) -> None:
+    from sqlalchemy import create_engine, text
+
+    from app.db import database
+
+    old = create_engine(f"sqlite:///{(tmp_path / 'old.db').as_posix()}")
+    with old.begin() as conn:  # the answers table as it was before step 3 (no query_id)
+        conn.execute(text("CREATE TABLE answers (answer_id VARCHAR PRIMARY KEY, answer_text TEXT, reliability_label VARCHAR)"))
+    monkeypatch.setattr(database, "engine", old)
+
+    with pytest.raises(database.SchemaOutdatedError, match=r"answers\.query_id.*delete"):
+        database.init_db()
+
+
+def test_current_database_passes_schema_check(tmp_path, monkeypatch) -> None:
+    from sqlalchemy import create_engine
+
+    from app.db import database
+
+    monkeypatch.setattr(database, "engine", create_engine(f"sqlite:///{(tmp_path / 'new.db').as_posix()}"))
+    database.init_db()  # creates everything; must not raise
 
 
 # --- Module 2: Format Detection & Text Extraction ---------------------------
@@ -265,30 +285,18 @@ def test_module5_upload_rolls_back_when_embedding_fails(client, pdf_file, tmp_pa
         assert db.query(DocumentORM).count() == 0
 
 
-# --- Modules 3-7: not built yet --------------------------------------------
+# --- Module 5: retrieval ---------------------------------------------------
+# (Module 4 and confidence-aware ranking: tests/test_content_type_reliability.py)
 
 
-@not_built
-def test_module4_content_type_identification() -> None:
-    """Module 4: table/paragraph/image chunks are labeled correctly."""
-
-
-@not_built
-def test_module5_confidence_aware_retrieval() -> None:
-    """Module 5: results are ranked by combined_score (build step 5)."""
-
-
-# --- Module 5: retrieval (build step 3) -------------------------------------
-
-
-def test_module5_retrieve_ranks_by_similarity(chroma, fake_embeddings) -> None:
+def test_module5_retrieve_ranks_by_similarity_at_equal_confidence(chroma, fake_embeddings) -> None:
     vector_store.add_chunks("doc", _embedded("doc", ["transformers use attention", "tesseract ocr confidence"], 1.0))
 
     hits = retrieval.retrieve(_query("tesseract ocr confidence"), top_k=2)
 
     assert [c.chunk_id for c, _ in hits] == ["doc:1", "doc:0"]
     result = hits[0][1]
-    assert result.combined_score == result.similarity  # step 3: similarity only
+    assert result.combined_score == pytest.approx(retrieval.combined_score(result.similarity, 1.0))
     assert result.confidence == 1.0
 
 
@@ -296,7 +304,7 @@ def test_module5_retrieve_on_empty_store_returns_nothing(chroma, fake_embeddings
     assert retrieval.retrieve(_query("anything"), top_k=5) == []
 
 
-# --- Module 6: reliability tiers (interim, build step 3) --------------------
+# --- Module 6: reliability tiers (fully legible evidence) ---------------------
 
 
 def _result(score: float) -> RetrievalResult:
@@ -307,7 +315,7 @@ def _result(score: float) -> RetrievalResult:
     ("best", "expected"),
     [
         (0.80, ReliabilityLabel.CERTAIN),
-        (reliability.CERTAIN_MIN, ReliabilityLabel.CERTAIN),
+        (reliability.CERTAIN_MIN_SIM, ReliabilityLabel.CERTAIN),
         (0.70, ReliabilityLabel.MODERATE),
         (0.50, ReliabilityLabel.UNCERTAIN),
     ],
@@ -357,7 +365,8 @@ def test_module7_prompt_contains_question_and_numbered_passages(fake_llm) -> Non
     assert answer.answer_text == fake_llm.reply
     assert answer.reliability_label is ReliabilityLabel.CERTAIN
     prompt = fake_llm.prompts[0]
-    assert "[1] RAG retrieves passages." in prompt and "[2] OCR reads scans." in prompt
+    assert "[1] (paragraph)\nRAG retrieves passages." in prompt
+    assert "[2] (paragraph)\nOCR reads scans." in prompt
     assert "Question: What is RAG?" in prompt
 
 
