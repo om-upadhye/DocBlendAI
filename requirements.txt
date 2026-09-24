@@ -14,3 +14,4 @@ pdfplumber
 PyPDF2
 jiwer
 pytest
+httpx2

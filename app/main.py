@@ -6,6 +6,7 @@ are wired together through the routers.
 Run with:  venv/Scripts/python -m uvicorn app.main:app --reload
 """
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -14,6 +15,9 @@ from fastapi import FastAPI
 from app.config import settings
 from app.db.database import init_db
 from app.routers import query, upload
+
+# Uvicorn only configures its own loggers; this makes app.* INFO logs visible too.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s - %(message)s")
 
 
 @asynccontextmanager
