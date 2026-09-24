@@ -14,8 +14,8 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.database import get_db
 from app.db.models import AnswerORM, QueryORM, RetrievalResultORM
-from app.models.schemas import Answer, Query
-from app.modules import embedder, llm_answer, reliability, retrieval
+from app.models.schemas import Answer, ContentType, Query, RetrievalResult
+from app.modules import embedder, llm_answer, reliability, retrieval, vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -52,3 +52,44 @@ def get_answer(answer_id: str, db: Session = Depends(get_db)) -> Answer:
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Answer not found")
     return Answer.model_validate(row)
+
+
+class AnswerSource(RetrievalResult):
+    """A retrieved chunk behind an answer: its scores plus the text itself.
+
+    API-only view (not a synopsis entity): lets users see why an answer got
+    its reliability label.
+    """
+
+    doc_id: str
+    content_type: ContentType
+    text: str
+
+
+@router.get("/answer/{answer_id}/sources", response_model=list[AnswerSource])
+def get_answer_sources(answer_id: str, db: Session = Depends(get_db)) -> list[AnswerSource]:
+    """Retrieved chunks for an answer, best combined_score first."""
+    row = db.get(AnswerORM, answer_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Answer not found")
+    results = (
+        db.query(RetrievalResultORM)
+        .filter_by(query_id=row.query_id)
+        .order_by(RetrievalResultORM.combined_score.desc())
+        .all()
+    )
+    chunks = vector_store.get_chunks([r.chunk_id for r in results])
+    sources = []
+    for r in results:
+        chunk = chunks.get(r.chunk_id)
+        if chunk is None:  # document deleted since the question was asked
+            continue
+        sources.append(
+            AnswerSource(
+                **RetrievalResult.model_validate(r).model_dump(),
+                doc_id=r.chunk_id.rsplit(":", 1)[0],
+                content_type=chunk.content_type,
+                text=chunk.text,
+            )
+        )
+    return sources

@@ -9,6 +9,7 @@ Uses from schemas.py: Document, FormatType.
 """
 
 import logging
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -50,7 +51,9 @@ def upload_document(
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Only PDF files are supported")
 
     doc_id = uuid.uuid4().hex
-    path = settings.upload_dir / f"{doc_id}.pdf"
+    # Keep the original name in the stored path so the UI can show it (the Document entity has no name field).
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(file.filename).stem)[:80] or "document"
+    path = settings.upload_dir / f"{doc_id}_{safe_name}.pdf"
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as out:
         shutil.copyfileobj(file.file, out)
@@ -65,6 +68,11 @@ def upload_document(
     return document
 
 
+@router.get("/documents", response_model=list[Document])
+def list_documents(db: Session = Depends(get_db)) -> list[Document]:
+    return [Document.model_validate(row) for row in db.query(DocumentORM).all()]
+
+
 def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session) -> Document:
     """Detect -> extract -> chunk -> calibrate -> label -> embed -> store. Raises HTTPException on expected failures."""
     try:
@@ -72,7 +80,7 @@ def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session
         format_type = format_hint or format_detection.detect_format(str(path))
     except PdfminerException:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "File is not a readable PDF")
-    except ocr_extractor.OCRUnavailableError as e:
+    except (ocr_extractor.OCRUnavailableError, htr_extractor.HTRUnavailableError) as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
     document = Document(doc_id=doc_id, file_path=str(path), format_type=format_type, page_count=pages)

@@ -56,6 +56,11 @@ def fit_calibration(samples: list[tuple[float, float]], bins: int = 10) -> Knots
     becomes a knot at its mean (raw_conf, accuracy). Knots are then made
     non-decreasing (pool adjacent violators), so a higher raw score never
     maps to a lower calibrated score.
+
+    The table is always anchored at (0, 0): zero confidence means nothing
+    was read reliably. Without the anchor, a sample set with only good pages
+    yields one knot, and interpolation would then flatten every score, even
+    an illegible page's, up to that knot's accuracy.
     """
     if not samples:
         raise ValueError("need at least one sample to fit calibration")
@@ -74,7 +79,10 @@ def fit_calibration(samples: list[tuple[float, float]], bins: int = 10) -> Knots
                 x1, y1, w1 = blocks.pop()
                 w = w1 + w2
                 blocks.append([(x1 * w1 + x2 * w2) / w, (y1 * w1 + y2 * w2) / w, w])
-    return [(round(x, 4), round(y, 4)) for x, y, _ in blocks]
+    knots = [(round(x, 4), round(y, 4)) for x, y, _ in blocks]
+    if knots[0][0] > 0:
+        knots.insert(0, (0.0, 0.0))
+    return knots
 
 
 def save_calibration(format_type: FormatType, knots: Knots) -> None:

@@ -9,9 +9,19 @@ Uses from schemas.py: nothing; returns PIL images to ocr_extractor/htr_extractor
 from collections.abc import Iterator
 
 import pypdfium2 as pdfium
-from PIL import Image
+from PIL import Image, ImageFilter
 
 PDF_POINTS_PER_INCH = 72
+
+
+def denoise(image: Image.Image) -> Image.Image:
+    """Remove photocopy/scan speckle before recognition.
+
+    A 3x3 median filter deletes isolated specks but keeps strokes. Without it,
+    Tesseract can spend minutes on a noisy page (every speck is a candidate
+    component) and HTR line segmentation mistakes speckle for text rows.
+    """
+    return image.filter(ImageFilter.MedianFilter(3))
 
 
 def render_pages(file_path: str, dpi: int, max_pages: int | None = None) -> Iterator[Image.Image]:

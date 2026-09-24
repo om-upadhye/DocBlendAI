@@ -9,6 +9,7 @@ Uses from schemas.py: nothing directly; output feeds chunker.py -> RecognizedChu
 Requires the Tesseract binary on the system (see CLAUDE.md).
 """
 
+import logging
 import shutil
 from contextlib import closing
 from functools import lru_cache
@@ -18,10 +19,15 @@ import pytesseract
 from PIL import Image
 
 from app.config import settings
-from app.modules.pdf_render import render_pages
+from app.modules.pdf_render import denoise, render_pages
+
+logger = logging.getLogger(__name__)
 
 # The UB Mannheim Windows installer's default location (not added to PATH by default).
 _WINDOWS_DEFAULT = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+# A clean page OCRs in 1-3 s. A page Tesseract is still chewing on after this is
+# extreme noise, and reading it as unreadable beats blocking the upload for minutes.
+OCR_TIMEOUT_SECONDS = 30
 
 
 class OCRUnavailableError(RuntimeError):
@@ -42,7 +48,15 @@ def _tesseract_cmd(configured: str) -> str:
 def ocr_image(image: Image.Image) -> tuple[str, float]:
     """OCR one page image. Returns (text, raw_conf); a page with no words gives ("", 0.0)."""
     pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd(settings.tesseract_cmd)
-    data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+    try:
+        data = pytesseract.image_to_data(
+            denoise(image), output_type=pytesseract.Output.DICT, timeout=OCR_TIMEOUT_SECONDS
+        )
+    except RuntimeError as e:  # pytesseract raises RuntimeError("Tesseract process timeout")
+        if "timeout" not in str(e).lower():
+            raise
+        logger.warning("OCR gave up on a page after %ss; treating it as unreadable", OCR_TIMEOUT_SECONDS)
+        return "", 0.0
 
     # Rebuild text from word boxes: words on the same line joined by spaces,
     # lines by newlines, paragraphs by a blank line. conf == -1 marks non-word boxes.
