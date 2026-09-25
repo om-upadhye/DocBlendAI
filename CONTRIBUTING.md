@@ -16,7 +16,7 @@ for the architecture decisions (they are locked; discuss before changing them).
    venv/Scripts/python -m pip install -r requirements.txt
    ```
    Always run tools through `venv/Scripts/python -m ...` (not the `venv/Scripts/*.exe` launchers).
-3. **Tesseract OCR** (needed for scanned PDFs):
+3. **Tesseract OCR** (needed for scanned PDFs, images, and page-orientation correction):
    ```bash
    winget install UB-Mannheim.TesseractOCR
    ```
@@ -63,7 +63,7 @@ Rules:
 | Module | File(s) |
 |---|---|
 | 1. Document Upload | `app/routers/upload.py` |
-| 2. Format Detection & Text Extraction | `app/modules/format_detection.py`, `text_parser.py`, `ocr_extractor.py`, `htr_extractor.py`, `pdf_render.py` |
+| 2. Format Detection & Text Extraction | `app/modules/format_detection.py`, `file_types.py`, `text_parser.py` (PDF/Word/PowerPoint/text), `ocr_extractor.py`, `htr_extractor.py`, `pdf_render.py` (PDF pages and images) |
 | 3. Confidence Capture & Calibration | `app/modules/confidence_capture.py`, `data/calibration.json` |
 | 4. Content-Type Identification | `app/modules/content_type.py` |
 | 5. Confidence-Aware Retrieval | `app/modules/chunker.py`, `embedder.py`, `vector_store.py`, `retrieval.py` |

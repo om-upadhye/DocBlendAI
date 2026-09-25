@@ -1,8 +1,12 @@
 # DocBlendAI
 
 Confidence-aware multi-format document QA assistant: upload typed, scanned, or
-handwritten academic PDFs and ask questions. Every answer carries a reliability
-tier (Certain / Moderate / Uncertain / Unreadable). See `CLAUDE.md` for full
+handwritten academic documents and ask questions. Every answer carries a reliability
+tier (Certain / Moderate / Uncertain / Unreadable).
+
+**Supported uploads:** PDF, images (JPG, PNG, TIFF incl. multi-page, BMP, WEBP;
+phone photos are turned upright automatically), Word (.docx, including tables),
+PowerPoint (.pptx, one page per slide), and plain text (.txt). See `CLAUDE.md` for full
 project context.
 
 **Team members:** start with [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the Git workflow, and troubleshooting.
@@ -38,7 +42,7 @@ and the contents of `data/chroma_db/` (local dev data), restart, and re-upload.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/upload` | Upload a PDF (optional `format_hint`: typed / scanned / handwritten) |
+| POST | `/upload` | Upload a PDF, image, .docx, .pptx, or .txt (optional `format_hint`: typed / scanned / handwritten) |
 | GET | `/documents` | List uploaded documents |
 | POST | `/ask` | Ask a question → answer + reliability label |
 | GET | `/answer/{id}` | Fetch a stored answer |
@@ -71,7 +75,8 @@ app/
 ├── modules/
 │   ├── format_detection.py  Module 2: detect format, route to an extractor
 │   ├── text_parser.py       Module 2: direct parsing of typed PDFs
-│   ├── pdf_render.py        Module 2: render pages to images, denoise
+│   ├── file_types.py        Modules 1-2: supported upload formats
+│   ├── pdf_render.py        Module 2: PDF pages / image files -> page images, denoise
 │   ├── ocr_extractor.py     Module 2: pytesseract OCR for scanned PDFs
 │   ├── htr_extractor.py     Module 2: TrOCR HTR for handwritten PDFs
 │   ├── confidence_capture.py Module 3: raw -> calibrated confidence
