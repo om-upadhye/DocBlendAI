@@ -105,7 +105,7 @@ def test_module5_retrieve_reranks_a_wider_candidate_pool(chroma, fake_embeddings
     monkeypatch.setattr(retrieval.settings, "candidate_multiplier", 3)
     calls = []
     original = vector_store.search
-    monkeypatch.setattr(vector_store, "search", lambda vec, k: calls.append(k) or original(vec, k))
+    monkeypatch.setattr(vector_store, "search", lambda vec, k, doc_ids=None: calls.append(k) or original(vec, k, doc_ids))
 
     retrieval.retrieve(Query(query_id="q", question_text="anything", user_id="u"), top_k=4)
 
@@ -129,7 +129,7 @@ def _result(similarity: float, confidence: float) -> RetrievalResult:
     [
         (0.80, 1.00, ReliabilityLabel.CERTAIN),  # typed, strong match
         (0.80, 0.70, ReliabilityLabel.MODERATE),  # strong match, partly legible
-        (0.70, 1.00, ReliabilityLabel.MODERATE),  # typed, loose match
+        (0.62, 1.00, ReliabilityLabel.MODERATE),  # typed, loose match
         (0.80, 0.50, ReliabilityLabel.UNCERTAIN),  # strong match, poorly legible
         (0.55, 1.00, ReliabilityLabel.UNCERTAIN),  # typed, off-topic
         (0.90, 0.20, ReliabilityLabel.UNREADABLE),  # relevant but illegible

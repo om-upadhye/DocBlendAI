@@ -16,7 +16,7 @@ for the architecture decisions (they are locked; discuss before changing them).
    venv/Scripts/python -m pip install -r requirements.txt
    ```
    Always run tools through `venv/Scripts/python -m ...` (not the `venv/Scripts/*.exe` launchers).
-3. **Tesseract OCR** (needed for scanned PDFs):
+3. **Tesseract OCR** (needed for scanned PDFs, images, and page-orientation correction):
    ```bash
    winget install UB-Mannheim.TesseractOCR
    ```
@@ -24,12 +24,18 @@ for the architecture decisions (they are locked; discuss before changing them).
 4. **Gemini API key:** copy `.env.example` to `.env` and put your key after `GEMINI_API_KEY=`.
    Get a key at https://aistudio.google.com/apikey.
    > **Never put a real key in `.env.example`** or any other committed file. `.env` is git-ignored; `.env.example` is not.
-5. **Run it:**
+5. **Setup check + model download** (downloads TrOCR, ~250 MB once, and reports anything missing):
+   ```bash
+   venv/Scripts/python -m scripts.setup_models
+   ```
+6. **Run it:**
    ```bash
    venv/Scripts/python -m uvicorn app.main:app --reload
    ```
    Open http://127.0.0.1:8000/ (app) or http://127.0.0.1:8000/docs (API).
-   The first handwritten upload downloads the TrOCR model (~250 MB, once).
+
+Exact versions of everything (Python, packages, Tesseract, models) are listed in README.md.
+When you add or upgrade a package, pin the exact version in `requirements.txt` and say why in the PR.
 
 ## Daily workflow
 
@@ -63,7 +69,7 @@ Rules:
 | Module | File(s) |
 |---|---|
 | 1. Document Upload | `app/routers/upload.py` |
-| 2. Format Detection & Text Extraction | `app/modules/format_detection.py`, `text_parser.py`, `ocr_extractor.py`, `htr_extractor.py`, `pdf_render.py` |
+| 2. Format Detection & Text Extraction | `app/modules/format_detection.py`, `file_types.py`, `text_parser.py` (PDF/Word/PowerPoint/text), `ocr_extractor.py`, `htr_extractor.py`, `pdf_render.py` (PDF pages and images) |
 | 3. Confidence Capture & Calibration | `app/modules/confidence_capture.py`, `data/calibration.json` |
 | 4. Content-Type Identification | `app/modules/content_type.py` |
 | 5. Confidence-Aware Retrieval | `app/modules/chunker.py`, `embedder.py`, `vector_store.py`, `retrieval.py` |
@@ -89,6 +95,6 @@ Rules:
 | Server refuses to start: "database … is out of date" | The table layout changed. Stop the server, delete `data/docblendai.db` and the contents of `data/chroma_db/` (keep `.gitkeep`), restart, re-upload. |
 | Upload returns **503** mentioning Tesseract | Install Tesseract (setup step 3), or set `TESSERACT_CMD` in `.env` to the full path of `tesseract.exe`. |
 | Upload returns **503** mentioning the HTR model | First run needs internet to download TrOCR; also rerun `pip install -r requirements.txt` (needs `sentencepiece`, `torchvision`). |
-| `/ask` returns **502** | Gemini is busy or rate-limited (the app already retries). Wait a minute; check `GEMINI_API_KEY` in `.env`. |
+| `/ask` returns **502** | Gemini is busy, rate-limited, or out of free quota; the server log shows which (`RESOURCE_EXHAUSTED` = quota). Free keys have **daily** per-model limits, so each member should use their **own** key. The default answer model is `gemini-3.5-flash-lite` for its larger free quota; `LLM_MODEL=gemini-3.5-flash` in `.env` needs a paid key for more than 20 answers/day. |
 | `/ask` returns **409** | That `query_id` was used before; send a new one (the web UI does this for you). |
 | `gh` not found after installing GitHub CLI | Open a new terminal, or call `"C:\Program Files\GitHub CLI\gh.exe"`. |

@@ -1,7 +1,8 @@
 """Module 1 — Document Upload.
 
-Responsibility: accept a PDF upload, save it under settings.upload_dir, run
-it through detection -> extraction (parse/OCR/HTR) -> chunking ->
+Responsibility: accept an upload (PDF, image, Word, PowerPoint, or text; see
+file_types.py), save it under settings.upload_dir, run it through
+detection -> extraction (parse/OCR/HTR) -> chunking ->
 calibration -> content-type labeling -> embedding -> ChromaDB, and record a
 Document row.
 
@@ -16,6 +17,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pdfplumber.utils.exceptions import PdfminerException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -27,6 +29,7 @@ from app.modules import (
     confidence_capture,
     content_type,
     embedder,
+    file_types,
     format_detection,
     htr_extractor,
     ocr_extractor,
@@ -43,17 +46,25 @@ router = APIRouter(tags=["upload"])
 def upload_document(
     file: UploadFile = File(...),
     format_hint: FormatType | None = Form(
-        None, description="Skip automatic detection and force this format (e.g. if detection guesses wrong)."
+        None,
+        description=(
+            "Skip automatic detection and force this format (e.g. if detection guesses wrong). "
+            "Ignored for Word/PowerPoint/text files (always typed), and 'typed' is ignored for images."
+        ),
     ),
     db: Session = Depends(get_db),
 ) -> Document:
-    if not (file.filename or "").lower().endswith(".pdf"):
-        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Only PDF files are supported")
+    filename = file.filename or ""
+    if file_types.kind_of(filename) is None:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"Unsupported file type. Upload one of: {file_types.supported_extensions()}",
+        )
 
     doc_id = uuid.uuid4().hex
     # Keep the original name in the stored path so the UI can show it (the Document entity has no name field).
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(file.filename).stem)[:80] or "document"
-    path = settings.upload_dir / f"{doc_id}_{safe_name}.pdf"
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(filename).stem)[:80] or "document"
+    path = settings.upload_dir / f"{doc_id}_{safe_name}{Path(filename).suffix.lower()}"
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as out:
         shutil.copyfileobj(file.file, out)
@@ -70,28 +81,48 @@ def upload_document(
 
 @router.get("/documents", response_model=list[Document])
 def list_documents(db: Session = Depends(get_db)) -> list[Document]:
-    return [Document.model_validate(row) for row in db.query(DocumentORM).all()]
+    """All documents, oldest upload first (SQLite rowid follows insertion order)."""
+    return [Document.model_validate(row) for row in db.query(DocumentORM).order_by(text("rowid")).all()]
+
+
+@router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document(doc_id: str, db: Session = Depends(get_db)) -> None:
+    """Remove a document everywhere: its row, its chunks in ChromaDB, and the uploaded file.
+
+    Past answers stay in the history; their sources simply no longer list this document.
+    """
+    row = db.get(DocumentORM, doc_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    vector_store.delete_document(doc_id)
+    Path(row.file_path).unlink(missing_ok=True)
+    db.delete(row)
+    db.commit()
+    logger.info("Deleted document %s", doc_id)
 
 
 def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session) -> Document:
     """Detect -> extract -> chunk -> calibrate -> label -> embed -> store. Raises HTTPException on expected failures."""
+    unreadable = f"File is not a readable {path.suffix} file (damaged, or not what its extension says)"
     try:
         pages = format_detection.page_count(str(path))
-        format_type = format_hint or format_detection.detect_format(str(path))
-    except PdfminerException:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "File is not a readable PDF")
+        format_type = format_detection.resolve_format(str(path), format_hint)
+    except (PdfminerException, file_types.UnreadableFileError):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, unreadable)
     except (ocr_extractor.OCRUnavailableError, htr_extractor.HTRUnavailableError) as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
     document = Document(doc_id=doc_id, file_path=str(path), format_type=format_type, page_count=pages)
     try:
         extracted = format_detection.extract(document)
+    except file_types.UnreadableFileError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, unreadable)
     except (ocr_extractor.OCRUnavailableError, htr_extractor.HTRUnavailableError) as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
     chunks = chunker.chunk_pages(doc_id, extracted)
     if not chunks:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No readable text found in this PDF")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No readable text found in this file")
     chunks = confidence_capture.apply_calibration(chunks, format_type)
     chunks = content_type.label_chunks(chunks)
 

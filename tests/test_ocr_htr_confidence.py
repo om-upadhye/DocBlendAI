@@ -143,6 +143,51 @@ def test_htr_ignores_specks() -> None:
     assert htr_extractor.segment_lines(page) == []
 
 
+def _ruled_notebook_page(text_rows: list[int], size=(1400, 2000)) -> Image.Image:
+    """Ruled paper like a real notes photo: faint tilted ruling every 60 px, a margin line,
+    a dark scan border, and 'handwriting' (letter-like strokes) sitting on some rulings."""
+    w, h = size
+    page = Image.new("L", size, 250)
+    draw = ImageDraw.Draw(page)
+    draw.rectangle((0, 0, 25, h), fill=40)  # dark scan edge
+    draw.line((160, 0, 164, h), fill=120, width=2)  # margin line
+    for y in range(100, h - 60, 60):
+        draw.line((0, y, w, y + 9), fill=150, width=2)  # ruling, slightly tilted
+    for row in text_rows:
+        base = 100 + row * 60
+        for x in range(220, 1100, 38):  # letters: 26 px tall vertical strokes plus a bar
+            draw.rectangle((x, base - 30, x + 5, base - 4), fill=30)
+            draw.rectangle((x, base - 18, x + 20, base - 14), fill=30)
+    return page
+
+
+def test_htr_segments_ruled_notebook_page_one_line_per_text_row() -> None:
+    # Regression: on real ruled notebook scans, every ruling line looked like text, so the
+    # page collapsed into ~3 giant "lines" and TrOCR read nonsense.
+    rows = [1, 2, 3, 5, 6, 9, 10, 11, 12, 20]
+    lines = htr_extractor.segment_lines(_ruled_notebook_page(rows))
+
+    assert len(lines) == len(rows)
+    assert all(img.height < 60 for img in lines)  # single lines, not merged blocks
+
+
+def test_htr_ruled_page_without_writing_has_no_lines() -> None:
+    assert htr_extractor.segment_lines(_ruled_notebook_page([])) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "degenerate"),
+    [
+        ("1 000 000 000 000 000 000 000 000", True),
+        ("the the the the the the", True),
+        ("AI system's ability to perform tasks autonomously", False),
+        ("a b", False),
+    ],
+)
+def test_htr_drops_repetition_hallucinations(text, degenerate) -> None:
+    assert htr_extractor.is_degenerate(text) is degenerate
+
+
 def test_htr_page_joins_lines_with_length_weighted_confidence(monkeypatch) -> None:
     monkeypatch.setattr(htr_extractor, "recognize_lines", lambda lines: [("abcdefgh", 1.0), ("", 0.1), ("ij", 0.5)])
 

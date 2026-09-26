@@ -52,9 +52,10 @@ def test_module1_upload_saves_document(client, pdf_file, db_session_factory) -> 
         assert db.get(DocumentORM, doc.doc_id) is not None
 
 
-def test_module1_rejects_non_pdf(client) -> None:
-    resp = client.post("/upload", files={"file": ("notes.txt", b"hello", "text/plain")})
+def test_module1_rejects_unsupported_file_type(client) -> None:
+    resp = client.post("/upload", files={"file": ("setup.exe", b"MZ\x90\x00", "application/octet-stream")})
     assert resp.status_code == 415
+    assert ".pdf" in resp.json()["detail"] and ".png" in resp.json()["detail"]
 
 
 def test_module1_rejects_corrupt_pdf_and_cleans_up(client, tmp_path) -> None:
@@ -317,7 +318,7 @@ def _result(score: float) -> RetrievalResult:
     [
         (0.80, ReliabilityLabel.CERTAIN),
         (reliability.CERTAIN_MIN_SIM, ReliabilityLabel.CERTAIN),
-        (0.70, ReliabilityLabel.MODERATE),
+        (0.62, ReliabilityLabel.MODERATE),
         (0.50, ReliabilityLabel.UNCERTAIN),
     ],
 )
@@ -496,6 +497,89 @@ def test_answer_sources_show_text_and_scores(client, pdf_file, fake_llm) -> None
     assert top["confidence"] == 1.0
     scores = [s["combined_score"] for s in sources]
     assert scores == sorted(scores, reverse=True)
+
+
+OCR_PAGE = "Tesseract recognizes printed characters on scanned pages and reports word confidence."
+
+
+def _upload_text(client, pdf_file, text: str, name: str) -> str:
+    with pdf_file([text], name=name).open("rb") as f:
+        return client.post("/upload", files={"file": (name, f, "application/pdf")}).json()["doc_id"]
+
+
+def test_ask_answers_only_from_selected_documents(client, pdf_file, fake_llm) -> None:
+    # Regression: questions about a just-uploaded document were answered from older uploads.
+    rag = _upload_text(client, pdf_file, TYPED_PAGE, "rag.pdf")
+    ocr = _upload_text(client, pdf_file, OCR_PAGE, "ocr.pdf")
+
+    resp = client.post(
+        "/ask",
+        json={"query_id": "q1", "question_text": "What does the retriever select?", "user_id": "u1", "doc_ids": [ocr]},
+    )
+
+    assert resp.status_code == 200
+    sources = client.get(f"/answer/{resp.json()['answer_id']}/sources").json()
+    assert sources and {s["doc_id"] for s in sources} == {ocr}
+    assert "Retrieval-Augmented Generation" not in fake_llm.prompts[0]  # the other document never reached the LLM
+    assert rag != ocr
+
+
+def test_ask_across_several_selected_documents(client, pdf_file, fake_llm) -> None:
+    rag = _upload_text(client, pdf_file, TYPED_PAGE, "rag.pdf")
+    ocr = _upload_text(client, pdf_file, OCR_PAGE, "ocr.pdf")
+    _upload_text(client, pdf_file, "Photosynthesis happens in chloroplasts of plant cells.", "bio.pdf")
+
+    resp = client.post(
+        "/ask", json={"query_id": "q1", "question_text": "retriever tesseract", "user_id": "u1", "doc_ids": [rag, ocr]}
+    )
+
+    sources = client.get(f"/answer/{resp.json()['answer_id']}/sources").json()
+    assert {s["doc_id"] for s in sources} == {rag, ocr}
+
+
+def test_ask_without_doc_ids_searches_everything(client, pdf_file, fake_llm) -> None:
+    rag = _upload_text(client, pdf_file, TYPED_PAGE, "rag.pdf")
+    ocr = _upload_text(client, pdf_file, OCR_PAGE, "ocr.pdf")
+
+    answer = _ask(client, "retriever tesseract").json()
+
+    sources = client.get(f"/answer/{answer['answer_id']}/sources").json()
+    assert {s["doc_id"] for s in sources} == {rag, ocr}
+
+
+@pytest.mark.parametrize(("doc_ids", "detail"), [([], "at least one"), (["no-such-doc"], "no-such-doc")])
+def test_ask_rejects_bad_document_selection(client, pdf_file, fake_llm, doc_ids, detail) -> None:
+    _upload(client, pdf_file)
+    resp = client.post("/ask", json={"query_id": "q1", "question_text": "x?", "user_id": "u1", "doc_ids": doc_ids})
+    assert resp.status_code == 422
+    assert detail in resp.json()["detail"]
+    assert fake_llm.prompts == []
+
+
+def test_delete_document_removes_it_everywhere(client, pdf_file, fake_llm) -> None:
+    keep = _upload_text(client, pdf_file, OCR_PAGE, "keep.pdf")
+    gone = _upload_text(client, pdf_file, TYPED_PAGE, "gone.pdf")
+    path = Path(next(d["file_path"] for d in client.get("/documents").json() if d["doc_id"] == gone))
+    old_answer = _ask(client, "retriever tesseract").json()
+
+    assert client.delete(f"/documents/{gone}").status_code == 204
+
+    assert [d["doc_id"] for d in client.get("/documents").json()] == [keep]
+    assert not path.exists()
+    remaining = vector_store.search(fake_embed(["retriever language model passages"], "")[0], top_k=10)
+    assert all(not c.chunk_id.startswith(gone) for c, _ in remaining)
+    # Past answers survive; their sources just no longer include the deleted document.
+    sources = client.get(f"/answer/{old_answer['answer_id']}/sources").json()
+    assert {s["doc_id"] for s in sources} == {keep}
+    # Deleted documents can no longer be selected or deleted again.
+    ask = {"query_id": "q2", "question_text": "x?", "user_id": "u1", "doc_ids": [gone]}
+    assert client.post("/ask", json=ask).status_code == 422
+    assert client.delete(f"/documents/{gone}").status_code == 404
+
+
+def test_documents_are_listed_oldest_first(client, pdf_file) -> None:
+    ids = [_upload_text(client, pdf_file, f"{TYPED_PAGE} Copy {i}.", f"doc{i}.pdf") for i in range(3)]
+    assert [d["doc_id"] for d in client.get("/documents").json()] == ids
 
 
 def test_list_documents(client, pdf_file) -> None:

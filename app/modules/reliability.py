@@ -19,15 +19,17 @@ Uses from schemas.py: RetrievalResult, ReliabilityLabel.
 
 from app.models.schemas import ReliabilityLabel, RetrievalResult
 
-# Similarity cut-offs for gemini-embedding-001 at 768 dims. First guesses
-# from a small live sample (relevant ~0.72-0.77, off-topic ~0.59-0.64).
-CERTAIN_MIN_SIM = 0.75
-MODERATE_MIN_SIM = 0.65
+# Similarity cut-offs for gemini-embedding-001 at 768 dims, set from the step 6
+# evaluation (evaluation/results/report.md): the top chunk behind every correct
+# answer scored 0.66-0.77, every unanswerable or unreadable question 0.50-0.52.
+# Moderate sits midway across that gap. Retune with `run_eval --rescore` as the
+# dataset grows (18 synthetic questions is a small sample).
+CERTAIN_MIN_SIM = 0.65
+MODERATE_MIN_SIM = 0.58
 # Calibrated confidence ~ expected character accuracy (see confidence_capture).
 CERTAIN_MIN_CONF = 0.85
 MODERATE_MIN_CONF = 0.60
 UNREADABLE_MAX_CONF = 0.35
-# All of the above are to be tuned against the evaluation set (build step 6).
 
 # Best to worst; used to combine labels ("the worse of two").
 TIER_ORDER = [
