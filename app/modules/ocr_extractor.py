@@ -1,12 +1,17 @@
 """Module 2 — OCR path (scanned/printed PDFs and images).
 
-Responsibility: rasterize pages and run pytesseract, returning page text plus
-a confidence (0-1) as raw_conf for Module 3. raw_conf is the mean of
-Tesseract's word confidences, weighted by word length, so it tracks the share
+Responsibility: rasterize pages and run an OCR engine, returning page text
+plus a confidence (0-1) as raw_conf for Module 3. raw_conf is the mean of the
+engine's word confidences, weighted by word length, so it tracks the share
 of characters recognized confidently.
 
+Two engines (settings.ocr_engine):
+- Tesseract via pytesseract: needs the Tesseract binary on the system (see CLAUDE.md).
+- docTR (mindee/doctr): DBNet text detection + CRNN recognition in PyTorch,
+  installed with pip alone. "auto" uses Tesseract when it is installed and
+  docTR otherwise, so the app runs on a laptop without Tesseract.
+
 Uses from schemas.py: nothing directly; output feeds chunker.py -> RecognizedChunk.
-Requires the Tesseract binary on the system (see CLAUDE.md).
 """
 
 import logging
@@ -31,7 +36,7 @@ OCR_TIMEOUT_SECONDS = 30
 
 
 class OCRUnavailableError(RuntimeError):
-    """The Tesseract binary could not be found."""
+    """No OCR engine is available (Tesseract not found, or docTR could not load)."""
 
 
 @lru_cache
@@ -45,8 +50,59 @@ def _tesseract_cmd(configured: str) -> str:
     )
 
 
+def _engine() -> str:
+    if settings.ocr_engine != "auto":
+        return settings.ocr_engine
+    try:
+        _tesseract_cmd(settings.tesseract_cmd)
+        return "tesseract"
+    except OCRUnavailableError:
+        return "doctr"
+
+
 def ocr_image(image: Image.Image) -> tuple[str, float]:
     """OCR one page image. Returns (text, raw_conf); a page with no words gives ("", 0.0)."""
+    if _engine() == "doctr":
+        return _doctr_ocr(image)
+    return _tesseract_ocr(image)
+
+
+@lru_cache
+def _doctr_predictor():
+    try:
+        from doctr.models import ocr_predictor
+
+        return ocr_predictor("db_resnet50", "crnn_vgg16_bn", pretrained=True, assume_straight_pages=True)
+    except (ImportError, OSError, RuntimeError) as e:
+        raise OCRUnavailableError(
+            f"docTR OCR could not load ({e}). Install Tesseract (Windows: winget install "
+            "UB-Mannheim.TesseractOCR) or run: pip install python-doctr"
+        ) from e
+
+
+def _doctr_ocr(image: Image.Image) -> tuple[str, float]:
+    import numpy as np
+
+    result = _doctr_predictor()([np.asarray(denoise(image).convert("RGB"))])
+    # docTR blocks ~ paragraphs: lines joined by newlines, blocks by a blank line (as for Tesseract).
+    blocks, weighted, chars = [], 0.0, 0
+    for block in result.pages[0].blocks:
+        lines = []
+        for line in block.lines:
+            words = [w for w in line.words if w.value.strip()]
+            for w in words:
+                weighted += float(w.confidence) * len(w.value)
+                chars += len(w.value)
+            if words:
+                lines.append(" ".join(w.value for w in words))
+        if lines:
+            blocks.append("\n".join(lines))
+    if not chars:
+        return "", 0.0
+    return "\n\n".join(blocks), weighted / chars
+
+
+def _tesseract_ocr(image: Image.Image) -> tuple[str, float]:
     pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd(settings.tesseract_cmd)
     try:
         data = pytesseract.image_to_data(

@@ -22,3 +22,5 @@ protobuf
 torchvision
 python-docx
 python-pptx
+opencv-python-headless
+python-doctr

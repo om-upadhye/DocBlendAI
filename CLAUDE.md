@@ -74,6 +74,19 @@ answers per day per project, so flash needs a paid key). pytesseract also requir
 binary installed on the system (`winget install UB-Mannheim.TesseractOCR`).
 See CONTRIBUTING.md for team setup and workflow.
 
+### Open-source integrations (synopsis-named and additional)
+
+| Repo | Where | Role |
+|---|---|---|
+| QwenLM/Qwen2.5 via ollama/ollama (synopsis) | `llm_answer.py` | Local answer model: `LLM_PROVIDER=ollama`, or automatic fallback when Gemini fails (`LLM_FALLBACK_TO_OLLAMA`) |
+| Temperature scaling, Ayllon et al. ICDAR 2024 (synopsis ref [3]) | `htr_extractor.py`, `confidence_capture.fit_temperature`, `evaluation/fit_htr_temperature.py` | Softens TrOCR's overconfident token probabilities (`HTR_TEMPERATURE`) |
+| OHRBench, opendatalab/OHR-Bench (synopsis ref [2]) | `evaluation/noise_robustness.py` | Idea only (graded injected OCR noise), not its data or code: checks that labels drop as recognition noise rises |
+| mindee/doctr | `line_segmentation.detect_lines`, `ocr_extractor._doctr_ocr` | DBNet text detection finds handwritten lines for TrOCR; full docTR OCR replaces Tesseract when it is not installed (`OCR_ENGINE=auto`) |
+| opencv/opencv | `line_segmentation.remove_ruled_lines` | Erases notebook rules and margin lines before HTR (the cause of gibberish on real notebook pages) |
+
+docTR downloads its weights (~165 MB) to `~/.cache/doctr` on first use. Tests never
+load docTR, TrOCR, or call Ollama (see `tests/conftest.py`).
+
 ## Environment & commands
 
 - Python 3.11 with a local virtualenv in `venv/` (git-ignored).

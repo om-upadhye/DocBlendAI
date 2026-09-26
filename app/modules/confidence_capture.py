@@ -9,6 +9,9 @@ fitted from evaluation samples with fit_calibration() and stored in
 settings.calibration_file. Until a format has a fitted table, calibration is
 the identity (calibrated_conf = raw_conf). Typed text is always 1.0.
 
+HTR confidence is also temperature-scaled at the token level before it
+reaches this table (fit_temperature; settings.htr_temperature).
+
 Uses from schemas.py: RecognizedChunk, FormatType.
 """
 
@@ -83,6 +86,32 @@ def fit_calibration(samples: list[tuple[float, float]], bins: int = 10) -> Knots
     if knots[0][0] > 0:
         knots.insert(0, (0.0, 0.0))
     return knots
+
+
+def _nll(samples: list[tuple[np.ndarray, np.ndarray]], temperature: float) -> float:
+    total, count = 0.0, 0
+    for logits, targets in samples:
+        z = logits / temperature
+        z = z - z.max(axis=1, keepdims=True)
+        log_probs = z - np.log(np.exp(z).sum(axis=1, keepdims=True))
+        total -= log_probs[np.arange(len(targets)), targets].sum()
+        count += len(targets)
+    return total / count
+
+
+def fit_temperature(samples: list[tuple[np.ndarray, np.ndarray]]) -> float:
+    """Fit the HTR softmax temperature by minimum negative log-likelihood (Guo et al., 2017).
+
+    Each sample is one text line: TrOCR's logits for its true text
+    ([tokens, vocab], from htr_extractor.teacher_forced_logits) and the true
+    token ids. This is the temperature scaling that Ayllon, Castellanos &
+    Calvo-Zaragoza (ICDAR 2024) found corrects overconfident HTR models; it
+    works on token probabilities, before the per-format table above.
+    """
+    if not samples:
+        raise ValueError("need at least one line to fit the temperature")
+    grid = np.round(np.arange(0.5, 5.001, 0.05), 2)
+    return float(min(grid, key=lambda t: _nll(samples, t)))
 
 
 def save_calibration(format_type: FormatType, knots: Knots) -> None:

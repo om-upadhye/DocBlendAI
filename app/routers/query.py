@@ -35,7 +35,7 @@ def ask(query: Query, db: Session = Depends(get_db)) -> Answer:
         answer = llm_answer.generate_answer(query, [c for c, _ in hits], label)
     except (embedder.EmbeddingError, llm_answer.LLMError) as e:
         logger.error("Answering %s failed: %s", query.query_id, e)
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Gemini service failed; try again later")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "The answer service (LLM) failed; try again later")
 
     db.add(QueryORM(**query.model_dump()))
     db.add(AnswerORM(**answer.model_dump(), query_id=query.query_id))

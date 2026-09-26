@@ -3,14 +3,18 @@
 Responsibility: split each page into text lines and run TrOCR (transformers)
 on them, returning page text plus a confidence (0-1) as raw_conf for Module 3.
 
-TrOCR reads one line at a time, so pages are segmented first with a
-horizontal ink-projection profile. A line's confidence is the geometric mean
-of its generated tokens' probabilities; the page's raw_conf is the mean of
-its lines' confidences weighted by line length.
+TrOCR reads one line at a time, so pages are segmented into lines first
+(find_lines): notebook rules are erased, then docTR's text detector finds the
+lines (see line_segmentation.py), with a horizontal ink-projection profile
+(segment_lines) as the fallback. A line's confidence is the geometric mean of
+its generated tokens' probabilities, temperature-scaled
+(settings.htr_temperature); the page's raw_conf is the mean of its lines'
+confidences weighted by line length.
 
 Uses from schemas.py: nothing directly; output feeds chunker.py -> RecognizedChunk.
 """
 
+import logging
 import math
 from contextlib import closing
 from functools import lru_cache
@@ -19,8 +23,10 @@ import numpy as np
 from PIL import Image
 
 from app.config import settings
-from app.modules import ocr_extractor
+from app.modules import line_segmentation, ocr_extractor
 from app.modules.pdf_render import denoise, render_pages
+
+logger = logging.getLogger(__name__)
 
 HTR_DPI = 200  # TrOCR resizes each line to 384x384 anyway; higher DPI only slows segmentation
 BATCH_SIZE = 8
@@ -84,6 +90,18 @@ def segment_lines(page: Image.Image) -> list[Image.Image]:
     return lines
 
 
+def find_lines(page: Image.Image) -> list[Image.Image]:
+    """Crop a page into text-line images, top to bottom, with the configured segmenter."""
+    if settings.remove_ruled_lines:
+        page = line_segmentation.remove_ruled_lines(page)
+    if settings.htr_segmenter == "doctr":
+        try:
+            return line_segmentation.detect_lines(page)
+        except line_segmentation.LineDetectorUnavailableError as e:
+            logger.warning("%s; falling back to projection line segmentation", e)
+    return segment_lines(page)
+
+
 @lru_cache
 def _load(model_name: str):
     try:
@@ -129,7 +147,10 @@ def recognize_lines(lines: list[Image.Image]) -> list[tuple[str, float]]:
                 output_scores=True,
                 return_dict_in_generate=True,
             )
-        logprobs = model.compute_transition_scores(out.sequences, out.scores, normalize_logits=True)
+        # Temperature scaling: divide the logits by T before the softmax. T > 1 softens the
+        # overconfident raw probabilities; the chosen tokens (the text) do not change.
+        scores = tuple(s / settings.htr_temperature for s in out.scores)
+        logprobs = model.compute_transition_scores(out.sequences, scores, normalize_logits=True)
         generated = out.sequences[:, 1:]  # drop the decoder start token
         texts = processor.batch_decode(out.sequences, skip_special_tokens=True)
         for text, lp, tokens in zip(texts, logprobs, generated):
@@ -142,11 +163,31 @@ def recognize_lines(lines: list[Image.Image]) -> list[tuple[str, float]]:
 
 def htr_image(page: Image.Image) -> tuple[str, float]:
     """HTR one page image. Returns (text, raw_conf); a page with no lines gives ("", 0.0)."""
-    recognized = [(t, c) for t, c in recognize_lines(segment_lines(denoise(page))) if t]
+    recognized = [(t, c) for t, c in recognize_lines(find_lines(denoise(page))) if t]
     chars = sum(len(t) for t, _ in recognized)
     if not chars:
         return "", 0.0
     return "\n".join(t for t, _ in recognized), sum(c * len(t) for t, c in recognized) / chars
+
+
+def teacher_forced_logits(lines: list[Image.Image], texts: list[str]) -> list[tuple[np.ndarray, np.ndarray]]:
+    """TrOCR's logits for the TRUE text of each line image: (logits [tokens, vocab], target ids [tokens]).
+
+    Used only to fit the temperature (confidence_capture.fit_temperature): the
+    temperature that best predicts the true tokens is the one that makes
+    TrOCR's probabilities honest.
+    """
+    import torch
+
+    processor, model = _load(settings.htr_model)
+    out = []
+    for img, text in zip(lines, texts):
+        pixel_values = processor(images=[img.convert("RGB")], return_tensors="pt").pixel_values
+        labels = processor.tokenizer(text, return_tensors="pt").input_ids
+        with torch.no_grad():
+            logits = model(pixel_values=pixel_values, labels=labels).logits[0]
+        out.append((logits.numpy(), labels[0].numpy()))
+    return out
 
 
 def htr_file(file_path: str, max_pages: int | None = None) -> list[tuple[str, float]]:

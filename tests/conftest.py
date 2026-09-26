@@ -16,7 +16,7 @@ from app.config import settings
 from app.db import models  # noqa: F401  (registers tables on Base.metadata)
 from app.db.database import Base, get_db
 from app.main import app
-from app.modules import confidence_capture, embedder, htr_extractor, ocr_extractor, vector_store
+from app.modules import confidence_capture, embedder, htr_extractor, line_segmentation, ocr_extractor, vector_store
 
 
 def make_pdf(pages: list[str]) -> bytes:
@@ -108,6 +108,26 @@ def no_real_htr_model(monkeypatch: pytest.MonkeyPatch) -> None:
         pytest.fail("a test tried to load the real TrOCR model; use the fake_htr fixture")
 
     monkeypatch.setattr(htr_extractor, "_load", _refuse)
+
+
+@pytest.fixture(autouse=True)
+def offline_engines(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the engine settings tests assume, and refuse to load docTR models (slow, downloads weights).
+
+    Tests use Tesseract's code path (faked), the projection line splitter, and
+    no Ollama fallback; test_open_source_integrations covers the alternatives with fakes.
+    """
+    monkeypatch.setattr(settings, "ocr_engine", "tesseract")
+    monkeypatch.setattr(settings, "htr_segmenter", "projection")
+    monkeypatch.setattr(settings, "htr_temperature", 1.0)
+    monkeypatch.setattr(settings, "llm_provider", "gemini")
+    monkeypatch.setattr(settings, "llm_fallback_to_ollama", False)
+
+    def _refuse():
+        pytest.fail("a test tried to load a real docTR model; fake it")
+
+    monkeypatch.setattr(line_segmentation, "_detector", _refuse)
+    monkeypatch.setattr(ocr_extractor, "_doctr_predictor", _refuse)
 
 
 @pytest.fixture(autouse=True)

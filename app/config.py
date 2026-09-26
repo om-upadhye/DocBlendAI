@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     # Lite by default: the free tier allows only 20 gemini-3.5-flash answers per day per project,
     # too few for a demo or one evaluation run. Set LLM_MODEL=gemini-3.5-flash in .env on a paid key.
     llm_model: str = "gemini-3.5-flash-lite"
+    # Answer generator: "gemini" or "ollama" (a local open model, Qwen2.5 by default, as the
+    # synopsis names; install Ollama and run `ollama pull qwen2.5:3b`).
+    llm_provider: str = "gemini"
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen2.5:3b"
+    # With the gemini provider: answer with Ollama instead when Gemini is unavailable (no key,
+    # free-tier quota used up, or overloaded). Needs Ollama running; otherwise the Gemini error stands.
+    llm_fallback_to_ollama: bool = True
     top_k: int = 5  # chunks retrieved per question
     # combined_score = w * similarity + (1 - w) * calibrated confidence. Relevance dominates:
     # a clearly-read but off-topic chunk should not outrank a relevant, less legible one.
@@ -38,6 +46,18 @@ class Settings(BaseSettings):
     scanned_min_ocr_conf: float = 0.6
     # Small model by default: runs on CPU laptops. trocr-base-handwritten is more accurate but ~4x slower.
     htr_model: str = "microsoft/trocr-small-handwritten"
+    # How HTR finds text lines: "doctr" (docTR's DBNet word detector, grouped into lines) or
+    # "projection" (ink-row profile; no model download). doctr falls back to projection if unavailable.
+    htr_segmenter: str = "doctr"
+    # Erase notebook rules and margin lines (OpenCV) before finding lines: ruled paper otherwise
+    # looks like one full-width line of ink per rule.
+    remove_ruled_lines: bool = True
+    # Temperature scaling of TrOCR token probabilities (Ayllon et al., ICDAR 2024: raw HTR
+    # confidence is overconfident). 1.0 = off; fit with `python -m evaluation.fit_htr_temperature`.
+    htr_temperature: float = 1.0
+    # Printed-text OCR engine: "tesseract", "doctr" (mindee/doctr, no system install), or "auto"
+    # (Tesseract when installed, otherwise docTR).
+    ocr_engine: str = "auto"
     calibration_file: Path = DATA_DIR / "calibration.json"
 
     database_url: str = f"sqlite:///{(DATA_DIR / 'docblendai.db').as_posix()}"
