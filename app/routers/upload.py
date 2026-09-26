@@ -17,6 +17,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pdfplumber.utils.exceptions import PdfminerException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -80,7 +81,24 @@ def upload_document(
 
 @router.get("/documents", response_model=list[Document])
 def list_documents(db: Session = Depends(get_db)) -> list[Document]:
-    return [Document.model_validate(row) for row in db.query(DocumentORM).all()]
+    """All documents, oldest upload first (SQLite rowid follows insertion order)."""
+    return [Document.model_validate(row) for row in db.query(DocumentORM).order_by(text("rowid")).all()]
+
+
+@router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document(doc_id: str, db: Session = Depends(get_db)) -> None:
+    """Remove a document everywhere: its row, its chunks in ChromaDB, and the uploaded file.
+
+    Past answers stay in the history; their sources simply no longer list this document.
+    """
+    row = db.get(DocumentORM, doc_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    vector_store.delete_document(doc_id)
+    Path(row.file_path).unlink(missing_ok=True)
+    db.delete(row)
+    db.commit()
+    logger.info("Deleted document %s", doc_id)
 
 
 def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session) -> Document:

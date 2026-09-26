@@ -96,14 +96,19 @@ def test_large_photo_is_scaled_down(tmp_path) -> None:
     path = _write_image(tmp_path / "phone.jpg", size=(3000, 4000))
     [page] = render_pages(str(path), dpi=200)
 
-    assert max(page.size) == int(200 * PAGE_LONG_SIDE_INCHES)
+    assert max(page.size) == round(200 * PAGE_LONG_SIDE_INCHES)
     assert page.mode == "L"
 
 
-def test_small_image_is_not_upscaled(tmp_path) -> None:
-    path = _write_image(tmp_path / "snip.png", size=(640, 200))
-    [page] = render_pages(str(path), dpi=300)
-    assert page.size == (640, 200)
+def test_small_screenshot_is_enlarged_at_most_3x(tmp_path) -> None:
+    # Regression: a real 576x793 screenshot of notes had ~15 px text, too small for OCR/HTR.
+    path = _write_image(tmp_path / "shot.png", size=(576, 793))
+    [page] = render_pages(str(path), dpi=200)
+    assert max(page.size) == round(200 * PAGE_LONG_SIDE_INCHES)  # 2.95x, under the cap
+
+    tiny = _write_image(tmp_path / "snip.png", size=(300, 100))
+    [page] = render_pages(str(tiny), dpi=300)
+    assert page.size == (900, 300)  # capped at 3x
 
 
 def test_phone_photo_is_turned_upright_from_exif(tmp_path) -> None:
@@ -112,15 +117,17 @@ def test_phone_photo_is_turned_upright_from_exif(tmp_path) -> None:
     path = _write_image(tmp_path / "sideways.jpg", size=(800, 600), exif=exif)
 
     [page] = render_pages(str(path), dpi=150)
-    assert page.size == (600, 800)
+    assert page.height > page.width  # stored landscape, displayed portrait
+    assert page.width / page.height == pytest.approx(600 / 800, abs=0.01)
 
 
 def test_transparent_png_gets_white_background(tmp_path) -> None:
     path = _write_image(tmp_path / "clip.png", mode="RGBA")
     [page] = render_pages(str(path), dpi=150)
+    sx, sy = page.width / 800, page.height / 600  # the page may be rescaled
 
-    assert page.getpixel((700, 500)) == 255  # transparent area is paper, not black
-    assert page.getpixel((100, 70)) < 50  # the drawn stroke survives
+    assert page.getpixel((int(700 * sx), int(500 * sy))) == 255  # transparent area is paper, not black
+    assert page.getpixel((int(100 * sx), int(70 * sy))) < 50  # the drawn stroke survives
 
 
 def test_image_upload_goes_through_ocr(client, tmp_path, fake_ocr) -> None:

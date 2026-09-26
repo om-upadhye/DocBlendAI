@@ -24,12 +24,17 @@ def combined_score(similarity: float, confidence: float) -> float:
     return w * similarity + (1 - w) * confidence
 
 
-def retrieve(query: Query, top_k: int = 5) -> list[tuple[RecognizedChunk, RetrievalResult]]:
+def retrieve(
+    query: Query, top_k: int = 5, doc_ids: list[str] | None = None
+) -> list[tuple[RecognizedChunk, RetrievalResult]]:
     """Return the top_k chunks and their scores, best combined_score first.
 
+    doc_ids limits retrieval to those documents (None = all documents).
     Raises embedder.EmbeddingError if the question cannot be embedded.
     """
-    hits = vector_store.search(embedder.embed_query(query.question_text), top_k * settings.candidate_multiplier)
+    hits = vector_store.search(
+        embedder.embed_query(query.question_text), top_k * settings.candidate_multiplier, doc_ids
+    )
     scored = []
     for chunk, similarity in hits:
         confidence = chunk.calibrated_conf if chunk.calibrated_conf is not None else chunk.raw_conf

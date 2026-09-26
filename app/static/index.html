@@ -47,8 +47,14 @@
   .status { font-size: 13px; color: var(--muted); }
   .status.error { color: var(--error); }
   ul.docs { list-style: none; margin: 14px 0 0; padding: 0; border-top: 1px solid var(--line); }
-  ul.docs li { padding: 9px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; }
+  ul.docs li { padding: 7px 0; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+  ul.docs label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: pointer; }
+  ul.docs input[type=checkbox] { width: 16px; height: 16px; flex: none; accent-color: var(--accent); }
   .docname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button.remove { background: transparent; color: var(--muted); font-weight: 400; padding: 2px 8px; font-size: 18px; line-height: 1; }
+  button.remove:hover, button.remove:focus-visible { color: var(--error); }
+  .hint { font-size: 13px; color: var(--muted); margin: 12px 0 0; }
+  .answer .from { font-size: 12px; color: var(--muted); margin-top: 8px; }
   .chip { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; }
   .empty { color: var(--muted); font-size: 14px; padding: 10px 0 0; }
   .answer { margin-top: 16px; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
@@ -96,6 +102,7 @@
         <span class="status" id="upload-status" role="status"></span>
       </div>
     </form>
+    <p class="hint">Tick the documents to ask about. A new upload is selected automatically.</p>
     <ul class="docs" id="docs"></ul>
   </section>
 
@@ -103,6 +110,7 @@
     <h2 id="ask-title">Ask a question</h2>
     <form id="ask-form">
       <textarea id="question" placeholder="e.g. What does second normal form remove?" required></textarea>
+      <p class="status" id="scope"></p>
       <div class="row">
         <button type="submit" id="ask-btn">Ask</button>
         <span class="status" id="ask-status" role="status"></span>
@@ -143,16 +151,68 @@ async function api(path, options) {
   return body;
 }
 
-async function loadDocs() {
+// Documents ticked for questions. Remembered in this browser as a convenience only.
+let selected = new Set();
+function saveSelection() {
+  try { localStorage.setItem("selectedDocs", JSON.stringify([...selected])); } catch {}
+}
+function savedSelection() {
+  try { return JSON.parse(localStorage.getItem("selectedDocs") || "[]"); } catch { return []; }
+}
+
+function renderScope() {
+  const scope = document.getElementById("scope");
+  const names = [...selected].map(docLabel);
+  scope.className = "status";
+  scope.textContent = names.length
+    ? `Answering from: ${names.join(", ")}`
+    : "No document selected. Tick at least one on the left.";
+}
+
+// newDocId: a just-uploaded document becomes the only selection.
+async function loadDocs(newDocId) {
   const list = document.getElementById("docs");
-  const docs = await api("/documents");
+  const docs = await api("/documents");  // oldest first
+  const ids = new Set(docs.map((d) => d.doc_id));
+  if (newDocId) selected = new Set([newDocId]);
+  else selected = new Set(savedSelection().filter((id) => ids.has(id)));
+  if (!selected.size && docs.length) selected = new Set([docs[docs.length - 1].doc_id]);  // default: latest
+  saveSelection();
+
   list.replaceChildren();
-  if (!docs.length) { list.append(el("li", { class: "empty" }, "No documents yet. Upload a document to start.")); return; }
-  for (const d of docs) {
+  if (!docs.length) {
+    list.append(el("li", { class: "empty" }, "No documents yet. Upload a document to start."));
+    renderScope();
+    return;
+  }
+  for (const d of [...docs].reverse()) {  // newest first
     docNames[d.doc_id] = nameFromPath(d);
+    const box = el("input", { type: "checkbox" });
+    box.checked = selected.has(d.doc_id);
+    box.addEventListener("change", () => {
+      box.checked ? selected.add(d.doc_id) : selected.delete(d.doc_id);
+      saveSelection(); renderScope();
+    });
+    const remove = el("button", { type: "button", class: "remove", title: "Delete document", "aria-label": `Delete ${docLabel(d.doc_id)}` }, "×");
+    remove.addEventListener("click", () => deleteDoc(d.doc_id));
     list.append(el("li", {},
-      el("span", { class: "docname", title: d.doc_id }, docLabel(d.doc_id)),
-      el("span", { class: "chip" }, `${FORMAT_LABEL[d.format_type]} · ${d.page_count} p`)));
+      el("label", { title: d.doc_id }, box, el("span", { class: "docname" }, docLabel(d.doc_id))),
+      el("span", { class: "chip" }, `${FORMAT_LABEL[d.format_type]} · ${d.page_count} p`),
+      remove));
+  }
+  renderScope();
+}
+
+async function deleteDoc(id) {
+  if (!confirm(`Delete "${docLabel(id)}"? It will no longer be used for answers.`)) return;
+  const status = document.getElementById("upload-status");
+  try {
+    await api(`/documents/${id}`, { method: "DELETE" });
+    selected.delete(id); saveSelection();
+    status.className = "status"; status.textContent = `Deleted ${docLabel(id)}.`;
+    await loadDocs();
+  } catch (err) {
+    status.className = "status error"; status.textContent = err.message;
   }
 }
 
@@ -169,9 +229,9 @@ document.getElementById("upload-form").addEventListener("submit", async (e) => {
   status.textContent = "Reading… scanned and handwritten pages can take a minute.";
   try {
     const doc = await api("/upload", { method: "POST", body: form });
-    status.textContent = `Added as ${doc.format_type}, ${doc.page_count} page(s).`;
+    status.textContent = `Added as ${doc.format_type}, ${doc.page_count} page(s). Questions now go to this document.`;
     e.target.reset();
-    await loadDocs();
+    await loadDocs(doc.doc_id);
   } catch (err) {
     status.className = "status error"; status.textContent = err.message;
   } finally { btn.disabled = false; }
@@ -193,11 +253,16 @@ document.getElementById("ask-form").addEventListener("submit", async (e) => {
   const question = document.getElementById("question").value.trim();
   if (!question) return;
   const status = document.getElementById("ask-status"), btn = document.getElementById("ask-btn");
+  if (!selected.size) {
+    status.className = "status error"; status.textContent = "Tick at least one document to ask about.";
+    return;
+  }
+  const docIds = [...selected];
   btn.disabled = true; status.className = "status"; status.textContent = "Thinking…";
   try {
     const answer = await api("/ask", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query_id: crypto.randomUUID(), question_text: question, user_id: "web" }),
+      body: JSON.stringify({ query_id: crypto.randomUUID(), question_text: question, user_id: "web", doc_ids: docIds }),
     });
     const sources = await api(`/answer/${answer.answer_id}/sources`);
     const label = answer.reliability_label;
@@ -205,7 +270,8 @@ document.getElementById("ask-form").addEventListener("submit", async (e) => {
       el("div", { class: "q" }, question),
       el("div", {}, el("span", { class: `badge ${label}` }, label)),
       el("div", { class: "text" }, answer.answer_text),
-      el("div", { class: "why" }, WHY[label]));
+      el("div", { class: "why" }, WHY[label]),
+      el("div", { class: "from" }, `Asked about: ${docIds.map(docLabel).join(", ")}`));
     if (sources.length) {
       const details = el("details", {}, el("summary", {}, `Sources (${sources.length})`));
       sources.forEach((s) => details.append(sourceView(s)));

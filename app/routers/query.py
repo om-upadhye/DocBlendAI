@@ -9,11 +9,12 @@ Uses from schemas.py: Query, Answer.
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import Field
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.database import get_db
-from app.db.models import AnswerORM, QueryORM, RetrievalResultORM
+from app.db.models import AnswerORM, DocumentORM, QueryORM, RetrievalResultORM
 from app.models.schemas import Answer, ContentType, Query, RetrievalResult
 from app.modules import embedder, llm_answer, reliability, retrieval, vector_store
 
@@ -22,14 +23,35 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["query"])
 
 
+class AskRequest(Query):
+    """A Query plus which documents to answer from.
+
+    API-only (the synopsis Query entity stays unchanged): doc_ids restricts
+    retrieval to those documents, so a question about a newly uploaded file is
+    not answered from older ones. Omit it to search every document.
+    """
+
+    doc_ids: list[str] | None = Field(
+        default=None, description="Answer only from these documents; omit to search all documents."
+    )
+
+
 # Plain `def`: embedding and generation are blocking network calls, so FastAPI runs this in its threadpool.
 @router.post("/ask", response_model=Answer)
-def ask(query: Query, db: Session = Depends(get_db)) -> Answer:
+def ask(request: AskRequest, db: Session = Depends(get_db)) -> Answer:
+    query = Query(**request.model_dump(exclude={"doc_ids"}))
     if db.get(QueryORM, query.query_id) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, f"query_id {query.query_id!r} already exists")
+    if request.doc_ids is not None:
+        if not request.doc_ids:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Select at least one document to ask about")
+        known = {row.doc_id for row in db.query(DocumentORM.doc_id).filter(DocumentORM.doc_id.in_(request.doc_ids))}
+        unknown = sorted(set(request.doc_ids) - known)
+        if unknown:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Unknown document(s): {', '.join(unknown)}")
 
     try:
-        hits = retrieval.retrieve(query, settings.top_k)
+        hits = retrieval.retrieve(query, settings.top_k, request.doc_ids)
         results = [r for _, r in hits]
         label = reliability.classify_reliability(results)
         answer = llm_answer.generate_answer(query, [c for c, _ in hits], label)

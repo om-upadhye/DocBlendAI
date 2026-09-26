@@ -25,9 +25,12 @@ SYSTEM_INSTRUCTION = (
     "You answer questions about academic documents. Use only the numbered context "
     "passages provided; never use outside knowledge. Be concise and precise. The user "
     "cannot see the passages, so answer directly without mentioning them, the context, "
-    "or passage numbers. Passages marked as recognized text may contain OCR or "
-    "handwriting errors: do not guess at garbled words. If the "
-    f"passages do not contain the answer, reply with exactly {NOT_FOUND}."
+    "or passage numbers. Passages marked as recognized text come from OCR or handwriting "
+    "recognition and contain misread words: answer from the parts that are clearly "
+    "readable, and read an obvious misspelling as the intended word when the "
+    "surrounding text makes it unambiguous (e.g. 'At system' next to 'AI planning' "
+    "means 'AI system'), but never guess at garbled words or add content that is not "
+    f"there. If the passages do not contain the answer, reply with exactly {NOT_FOUND}."
 )
 
 # Passages below this confidence are flagged to the model as possibly misrecognized.
@@ -66,7 +69,7 @@ def _generate(prompt: str) -> str:
 
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
-        temperature=0.2,
+        temperature=0.0,  # deterministic: the same question on the same text gives the same answer
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
     )
     for attempt in range(MAX_ATTEMPTS):

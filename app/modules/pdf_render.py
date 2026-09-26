@@ -5,7 +5,8 @@ Responsibility: yield one grayscale PIL image per page:
   Poppler install is needed)
 - image files: each image is one page (multi-page TIFF: one page per frame);
   phone photos are turned upright from their EXIF orientation, transparency
-  is flattened onto white, and very large photos are scaled down
+  is flattened onto white, and images are scaled to about an A4 page (large
+  photos down, small screenshots up to 3x)
 
 Uses from schemas.py: nothing; returns PIL images to ocr_extractor/htr_extractor.
 """
@@ -22,6 +23,7 @@ PDF_POINTS_PER_INCH = 72
 # and shrink anything whose long side exceeds that at the requested DPI.
 # A 12-megapixel phone photo is ~4000 px; OCR at 300 DPI needs at most ~3500 px.
 PAGE_LONG_SIDE_INCHES = 11.69
+MAX_UPSCALE = 3.0
 
 
 def denoise(image: Image.Image) -> Image.Image:
@@ -72,9 +74,11 @@ def _to_page(frame: Image.Image, dpi: int) -> Image.Image:
         page = Image.alpha_composite(white, page.convert("RGBA"))
     page = page.convert("L")
 
-    max_side = int(dpi * PAGE_LONG_SIDE_INCHES)
-    if max(page.size) > max_side:
-        scale = max_side / max(page.size)
+    # Scale the image to about an A4 page at this DPI: shrink big phone photos, and enlarge
+    # small screenshots (their text is often ~15 px tall, too small for OCR/HTR), at most 3x.
+    target = dpi * PAGE_LONG_SIDE_INCHES
+    scale = min(target / max(page.size), MAX_UPSCALE)
+    if abs(scale - 1) > 0.05:
         page = page.resize((round(page.width * scale), round(page.height * scale)), Image.LANCZOS)
     return page
 
