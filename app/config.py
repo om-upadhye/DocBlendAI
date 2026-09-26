@@ -23,14 +23,9 @@ class Settings(BaseSettings):
     # Lite by default: the free tier allows only 20 gemini-3.5-flash answers per day per project,
     # too few for a demo or one evaluation run. Set LLM_MODEL=gemini-3.5-flash in .env on a paid key.
     llm_model: str = "gemini-3.5-flash-lite"
-    # Answer generator: "gemini" or "ollama" (a local open model, Qwen2.5 by default, as the
-    # synopsis names; install Ollama and run `ollama pull qwen2.5:3b`).
-    llm_provider: str = "gemini"
-    ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:3b"
-    # With the gemini provider: answer with Ollama instead when Gemini is unavailable (no key,
-    # free-tier quota used up, or overloaded). Needs Ollama running; otherwise the Gemini error stands.
-    llm_fallback_to_ollama: bool = True
+    # Second Gemini model for when llm_model is out of quota (429) or overloaded (503).
+    # Free-tier quotas are per model, so this keeps answers coming. Empty = no fallback.
+    llm_fallback_model: str = "gemini-3.5-flash"
     top_k: int = 5  # chunks retrieved per question
     # combined_score = w * similarity + (1 - w) * calibrated confidence. Relevance dominates:
     # a clearly-read but off-topic chunk should not outrank a relevant, less legible one.

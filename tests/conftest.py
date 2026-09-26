@@ -115,13 +115,12 @@ def offline_engines(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the engine settings tests assume, and refuse to load docTR models (slow, downloads weights).
 
     Tests use Tesseract's code path (faked), the projection line splitter, and
-    no Ollama fallback; test_open_source_integrations covers the alternatives with fakes.
+    no fallback answer model; test_open_source_integrations covers the alternatives with fakes.
     """
     monkeypatch.setattr(settings, "ocr_engine", "tesseract")
     monkeypatch.setattr(settings, "htr_segmenter", "projection")
     monkeypatch.setattr(settings, "htr_temperature", 1.0)
-    monkeypatch.setattr(settings, "llm_provider", "gemini")
-    monkeypatch.setattr(settings, "llm_fallback_to_ollama", False)
+    monkeypatch.setattr(settings, "llm_fallback_model", "")
 
     def _refuse():
         pytest.fail("a test tried to load a real docTR model; fake it")

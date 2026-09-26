@@ -33,12 +33,6 @@ for the architecture decisions (they are locked; discuss before changing them).
    Open http://127.0.0.1:8000/ (app) or http://127.0.0.1:8000/docs (API).
    The first handwritten upload downloads the TrOCR model (~250 MB, once) and the docTR
    models (~165 MB, once).
-6. **Optional: local Qwen2.5 answers (no quota).** Install Ollama (https://ollama.com), then:
-   ```bash
-   ollama pull qwen2.5:3b
-   ```
-   With Ollama running, answers fall back to Qwen2.5 when Gemini fails; set `LLM_PROVIDER=ollama`
-   in `.env` to always use it. Embeddings still need the Gemini key.
 
 ## Daily workflow
 
@@ -101,6 +95,6 @@ Rules:
 | Upload returns **503** mentioning Tesseract | Install Tesseract (setup step 3), or set `TESSERACT_CMD` in `.env` to the full path of `tesseract.exe`. |
 | Upload returns **503** mentioning the HTR model | First run needs internet to download TrOCR; also rerun `pip install -r requirements.txt` (needs `sentencepiece`, `torchvision`). |
 | Handwritten notebook page reads as gibberish | Check `REMOVE_RULED_LINES=true` and `HTR_SEGMENTER=doctr` (the defaults). For hard handwriting try `HTR_MODEL=microsoft/trocr-base-handwritten` (more accurate, ~4x slower). |
-| `/ask` returns **502** | If Ollama is installed, `ollama serve` + `ollama pull qwen2.5:3b` lets answers fall back to Qwen2.5. Otherwise: Gemini is busy, rate-limited, or out of free quota; the server log shows which (`RESOURCE_EXHAUSTED` = quota). Free keys have **daily** per-model limits, so each member should use their **own** key. The default answer model is `gemini-3.5-flash-lite` for its larger free quota; `LLM_MODEL=gemini-3.5-flash` in `.env` needs a paid key for more than 20 answers/day. |
+| `/ask` returns **502** | Both `LLM_MODEL` and `LLM_FALLBACK_MODEL` failed: Gemini is busy, rate-limited, or out of free quota; the server log shows which (`RESOURCE_EXHAUSTED` = quota). Free keys have **daily** per-model limits, so each member should use their **own** key. The default answer model is `gemini-3.5-flash-lite` for its larger free quota; `LLM_MODEL=gemini-3.5-flash` in `.env` needs a paid key for more than 20 answers/day. |
 | `/ask` returns **409** | That `query_id` was used before; send a new one (the web UI does this for you). |
 | `gh` not found after installing GitHub CLI | Open a new terminal, or call `"C:\Program Files\GitHub CLI\gh.exe"`. |

@@ -1,13 +1,7 @@
 """Module 7 — LLM Answer Generation.
 
-Responsibility: prompt an LLM with the question and retrieved chunk text,
+Responsibility: prompt Gemini with the question and retrieved chunk text,
 and return the answer tagged with its reliability label.
-
-Two providers (settings.llm_provider), as the synopsis names:
-- Gemini (google-genai SDK), the default.
-- Qwen2.5 (QwenLM/Qwen2.5), an open-weight model run locally through Ollama
-  (ollama/ollama). No API key or quota. With the Gemini provider it is also
-  the fallback when Gemini is unavailable (settings.llm_fallback_to_ollama).
 
 Uses from schemas.py: Query, RecognizedChunk, ReliabilityLabel, Answer.
 """
@@ -17,7 +11,6 @@ import time
 import uuid
 from functools import lru_cache
 
-import httpx
 from google import genai
 from google.genai import errors, types
 
@@ -43,16 +36,13 @@ SYSTEM_INSTRUCTION = (
 # Passages below this confidence are flagged to the model as possibly misrecognized.
 LOW_CONFIDENCE = 0.95
 
-# A local model on a CPU laptop can take a minute or more for one answer.
-OLLAMA_TIMEOUT_SECONDS = 300
-
 # Gemini returns these under load (503) or rate limiting (429); worth a short retry.
 RETRYABLE_CODES = {429, 500, 503}
 MAX_ATTEMPTS = 3
 
 
 class LLMError(RuntimeError):
-    """Answer generation failed: missing API key, a Gemini API error, or Ollama unreachable."""
+    """Answer generation failed: missing API key or a Gemini API error."""
 
 
 @lru_cache
@@ -74,53 +64,31 @@ def build_prompt(question: str, chunks: list[RecognizedChunk]) -> str:
 
 
 def _generate(prompt: str) -> str:
-    """Answer with the configured provider (falling back from Gemini to Ollama if enabled)."""
-    if settings.llm_provider == "ollama":
-        return _generate_ollama(prompt)
-    try:
-        return _generate_gemini(prompt)
-    except LLMError as e:
-        if not settings.llm_fallback_to_ollama:
-            raise
-        logger.warning("%s; answering with %s via Ollama instead", e, settings.ollama_model)
-        try:
-            return _generate_ollama(prompt)
-        except LLMError as fallback_error:
-            raise LLMError(f"{e} (Ollama fallback also failed: {fallback_error})") from e
+    """Answer with settings.llm_model, or settings.llm_fallback_model if the first stays busy.
 
-
-def _generate_ollama(prompt: str) -> str:
-    """Answer with a local open model (Qwen2.5 by default) through Ollama's chat API."""
-    try:
-        resp = httpx.post(
-            f"{settings.ollama_url.rstrip('/')}/api/chat",
-            json={
-                "model": settings.ollama_model,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_INSTRUCTION},
-                    {"role": "user", "content": prompt},
-                ],
-                "stream": False,
-                "options": {"temperature": 0.2},
-            },
-            timeout=OLLAMA_TIMEOUT_SECONDS,
-        )
-    except httpx.HTTPError as e:
-        raise LLMError(f"Ollama is not reachable at {settings.ollama_url} (is it installed and running?): {e}") from e
-    if resp.status_code == 404:
-        raise LLMError(f"Ollama has no model {settings.ollama_model!r}; run: ollama pull {settings.ollama_model}")
-    if resp.status_code != 200:
-        raise LLMError(f"Ollama generation failed ({resp.status_code}): {resp.text[:200]}")
-    text = (resp.json().get("message") or {}).get("content", "").strip()
-    if not text:
-        raise LLMError("Ollama returned an empty response")
-    return text
-
-
-def _generate_gemini(prompt: str) -> str:
+    Free-tier Gemini quotas are counted per model, so when the default model is
+    out of quota (429) or overloaded (503) a second model can usually still answer.
+    Other errors (a bad request, a missing key) are not retried on another model.
+    """
     if not settings.gemini_api_key:
         raise LLMError("GEMINI_API_KEY is not set (see .env.example)")
 
+    models = [settings.llm_model]
+    if settings.llm_fallback_model and settings.llm_fallback_model != settings.llm_model:
+        models.append(settings.llm_fallback_model)
+    for i, model in enumerate(models):
+        try:
+            return _generate_with(model, prompt)
+        except errors.APIError as e:
+            if e.code in RETRYABLE_CODES and i < len(models) - 1:
+                logger.warning("%s unavailable (%s); answering with %s instead", model, e.code, models[i + 1])
+                continue
+            raise LLMError(f"Gemini generation failed ({model}): {e}") from e
+    raise AssertionError("unreachable")
+
+
+def _generate_with(model: str, prompt: str) -> str:
+    """One Gemini model, with short retries on overload/rate limits. Raises the last APIError."""
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
         temperature=0.2,
@@ -128,15 +96,13 @@ def _generate_gemini(prompt: str) -> str:
     )
     for attempt in range(MAX_ATTEMPTS):
         try:
-            resp = _client(settings.gemini_api_key).models.generate_content(
-                model=settings.llm_model, contents=prompt, config=config
-            )
+            resp = _client(settings.gemini_api_key).models.generate_content(model=model, contents=prompt, config=config)
             break
         except errors.APIError as e:
             if e.code in RETRYABLE_CODES and attempt < MAX_ATTEMPTS - 1:
                 time.sleep(2**attempt)
                 continue
-            raise LLMError(f"Gemini generation failed: {e}") from e
+            raise
 
     if not resp.text:
         raise LLMError("Gemini returned an empty response (possibly blocked)")
@@ -158,7 +124,7 @@ def generate_answer(
         return Answer(answer_id=answer_id, answer_text=NO_DOCUMENTS_ANSWER, reliability_label=reliability_label)
 
     text = _generate(build_prompt(query.question_text, chunks))
-    # Smaller local models sometimes add punctuation or quotes around the marker.
+    # Lite models sometimes wrap the marker in punctuation, quotes, or bold.
     if text.strip(" .\"'`*").upper() == NOT_FOUND:
         text = NOT_FOUND_ANSWER
         reliability_label = worse_of(reliability_label, ReliabilityLabel.UNCERTAIN)

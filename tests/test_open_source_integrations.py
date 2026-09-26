@@ -1,15 +1,15 @@
 """Tests for the open-source integrations: OpenCV rule removal, docTR line detection and OCR,
-TrOCR temperature scaling, Qwen2.5 via Ollama, and the OHRBench-style noise injection.
+TrOCR temperature scaling, the Gemini fallback model, and the OHRBench-style noise injection.
 
-All offline: docTR models and Ollama are faked (see conftest.offline_engines).
+All offline: docTR models and Gemini are faked (see conftest.offline_engines).
 """
 
 import random
 from types import SimpleNamespace
 
-import httpx
 import numpy as np
 import pytest
+from google.genai import errors as genai_errors
 from PIL import Image, ImageDraw
 
 from app.config import settings
@@ -207,81 +207,65 @@ def test_auto_engine_prefers_tesseract_when_installed(monkeypatch) -> None:
     assert ocr_extractor.ocr_image(Image.new("L", (10, 10), 255)) == ("from tesseract", 0.8)
 
 
-# --- Qwen2.5 via Ollama (Module 7) -------------------------------------------------------------
+# --- Gemini fallback model (Module 7) ----------------------------------------------------------
 
 
-class _FakeOllama:
-    def __init__(self, status=200, content="Qwen says hi.", error: Exception | None = None):
-        self.status, self.content, self.error, self.requests = status, content, error, []
+class _PerModelGemini:
+    """Fake genai client: each model name fails with its listed error codes, then answers."""
 
-    def post(self, url, json, timeout):
-        self.requests.append((url, json))
-        if self.error:
-            raise self.error
-        body = {"message": {"role": "assistant", "content": self.content}}
-        return SimpleNamespace(status_code=self.status, json=lambda: body, text="model not found")
+    def __init__(self, failures: dict[str, list[int]]):
+        self.failures, self.calls = failures, []
+        self.models = self
+
+    def generate_content(self, model, contents, config):
+        self.calls.append(model)
+        codes = self.failures.get(model, [])
+        if codes:
+            raise genai_errors.APIError(codes.pop(0), {"error": {"message": "err"}})
+        return SimpleNamespace(text=f"answer from {model}")
 
 
-def _use_ollama(monkeypatch, fake: _FakeOllama) -> _FakeOllama:
-    monkeypatch.setattr(llm_answer.httpx, "post", fake.post)
+def _install_gemini(monkeypatch, failures) -> _PerModelGemini:
+    fake = _PerModelGemini(failures)
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr(settings, "llm_model", "lite")
+    monkeypatch.setattr(settings, "llm_fallback_model", "flash")
+    monkeypatch.setattr(llm_answer, "_client", lambda api_key: fake)
+    monkeypatch.setattr(llm_answer.time, "sleep", lambda s: None)
     return fake
 
 
-def test_ollama_provider_sends_system_and_prompt(monkeypatch) -> None:
-    fake = _use_ollama(monkeypatch, _FakeOllama())
-    monkeypatch.setattr(settings, "llm_provider", "ollama")
-
-    assert llm_answer._generate("the prompt") == "Qwen says hi."
-    url, body = fake.requests[0]
-    assert url.endswith("/api/chat")
-    assert body["model"] == settings.ollama_model
-    assert [m["role"] for m in body["messages"]] == ["system", "user"]
-    assert body["messages"][1]["content"] == "the prompt"
-    assert body["stream"] is False
+def test_quota_exhausted_model_falls_back_to_second_gemini_model(monkeypatch) -> None:
+    fake = _install_gemini(monkeypatch, {"lite": [429, 429, 429]})
+    assert llm_answer._generate("p") == "answer from flash"
+    assert fake.calls == ["lite", "lite", "lite", "flash"]
 
 
-def test_ollama_missing_model_says_how_to_pull(monkeypatch) -> None:
-    _use_ollama(monkeypatch, _FakeOllama(status=404))
-    monkeypatch.setattr(settings, "llm_provider", "ollama")
-    with pytest.raises(llm_answer.LLMError, match="ollama pull"):
+def test_primary_model_answering_never_touches_fallback(monkeypatch) -> None:
+    fake = _install_gemini(monkeypatch, {"lite": [503]})
+    assert llm_answer._generate("p") == "answer from lite"
+    assert "flash" not in fake.calls
+
+
+def test_bad_request_is_not_retried_on_fallback(monkeypatch) -> None:
+    fake = _install_gemini(monkeypatch, {"lite": [400]})
+    with pytest.raises(llm_answer.LLMError, match="lite"):
         llm_answer._generate("p")
+    assert fake.calls == ["lite"]
 
 
-def test_ollama_not_running(monkeypatch) -> None:
-    _use_ollama(monkeypatch, _FakeOllama(error=httpx.ConnectError("refused")))
-    monkeypatch.setattr(settings, "llm_provider", "ollama")
-    with pytest.raises(llm_answer.LLMError, match="not reachable"):
-        llm_answer._generate("p")
-
-
-def _gemini_fails(monkeypatch):
-    def _fail(prompt):
-        raise llm_answer.LLMError("Gemini quota exhausted (429)")
-
-    monkeypatch.setattr(llm_answer, "_generate_gemini", _fail)
-
-
-def test_gemini_failure_falls_back_to_qwen(monkeypatch) -> None:
-    _gemini_fails(monkeypatch)
-    _use_ollama(monkeypatch, _FakeOllama(content="Local answer."))
-    monkeypatch.setattr(settings, "llm_fallback_to_ollama", True)
-    assert llm_answer._generate("p") == "Local answer."
-
-
-def test_fallback_failure_reports_both_errors(monkeypatch) -> None:
-    _gemini_fails(monkeypatch)
-    _use_ollama(monkeypatch, _FakeOllama(error=httpx.ConnectError("refused")))
-    monkeypatch.setattr(settings, "llm_fallback_to_ollama", True)
-    with pytest.raises(llm_answer.LLMError, match="quota.*Ollama fallback also failed"):
+def test_both_models_exhausted_raises(monkeypatch) -> None:
+    _install_gemini(monkeypatch, {"lite": [429] * 3, "flash": [429] * 3})
+    with pytest.raises(llm_answer.LLMError, match="flash"):
         llm_answer._generate("p")
 
 
 def test_no_fallback_when_disabled(monkeypatch) -> None:
-    _gemini_fails(monkeypatch)
-    fake = _use_ollama(monkeypatch, _FakeOllama())
-    with pytest.raises(llm_answer.LLMError, match="quota"):
+    fake = _install_gemini(monkeypatch, {"lite": [429] * 3})
+    monkeypatch.setattr(settings, "llm_fallback_model", "")
+    with pytest.raises(llm_answer.LLMError):
         llm_answer._generate("p")
-    assert fake.requests == []
+    assert set(fake.calls) == {"lite"}
 
 
 @pytest.mark.parametrize("reply", ["NOT_FOUND", "NOT_FOUND.", '"NOT_FOUND"', "not_found", "**NOT_FOUND**"])
