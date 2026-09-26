@@ -89,6 +89,6 @@ Rules:
 | Server refuses to start: "database … is out of date" | The table layout changed. Stop the server, delete `data/docblendai.db` and the contents of `data/chroma_db/` (keep `.gitkeep`), restart, re-upload. |
 | Upload returns **503** mentioning Tesseract | Install Tesseract (setup step 3), or set `TESSERACT_CMD` in `.env` to the full path of `tesseract.exe`. |
 | Upload returns **503** mentioning the HTR model | First run needs internet to download TrOCR; also rerun `pip install -r requirements.txt` (needs `sentencepiece`, `torchvision`). |
-| `/ask` returns **502** | Gemini is busy or rate-limited (the app already retries). Wait a minute; check `GEMINI_API_KEY` in `.env`. |
+| `/ask` returns **502** | Gemini is busy, rate-limited, or out of free quota; the server log shows which (`RESOURCE_EXHAUSTED` = quota). Free keys have **daily** per-model limits, so each member should use their **own** key. The default answer model is `gemini-3.5-flash-lite` for its larger free quota; `LLM_MODEL=gemini-3.5-flash` in `.env` needs a paid key for more than 20 answers/day. |
 | `/ask` returns **409** | That `query_id` was used before; send a new one (the web UI does this for you). |
 | `gh` not found after installing GitHub CLI | Open a new terminal, or call `"C:\Program Files\GitHub CLI\gh.exe"`. |

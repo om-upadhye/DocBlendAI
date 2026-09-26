@@ -130,7 +130,7 @@ def fit_and_check_calibration(cal_rows: list[dict], qa_rows: list[dict], save: b
 # --- phase 3: question answering ---------------------------------------------------------
 
 
-def evaluate_qa(manifest: dict) -> list[dict]:
+def evaluate_qa(manifest: dict, errors_seen: list[dict]) -> list[dict]:
     from fastapi.testclient import TestClient
 
     from app.main import app
@@ -156,7 +156,12 @@ def evaluate_qa(manifest: dict) -> list[dict]:
         for doc_name, fmt, qa in questions:
             body = {"query_id": uuid.uuid4().hex, "question_text": qa["question"], "user_id": "eval"}
             resp = client.post("/ask", json=body)
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                # e.g. 502 when Gemini's quota runs out: record it and keep the rest of the run.
+                detail = resp.json().get("detail", resp.text)
+                print(f"  [ERROR {resp.status_code}] {qa['question']}: {detail}", flush=True)
+                errors_seen.append({"question": qa["question"], "status": resp.status_code, "detail": detail})
+                continue
             answer = resp.json()
             sources = client.get(f"/answer/{answer['answer_id']}/sources").json()
             top = sources[0] if sources else None
@@ -304,11 +309,49 @@ def write_report(qa_rec, cal_rec, calibration, qa_rows, fitted: bool) -> str:
     return "\n".join(lines) + "\n"
 
 
+def rescore() -> None:
+    """Recompute reliability labels from the saved results with the current thresholds.
+
+    For tuning reliability.py without re-running OCR/HTR or spending Gemini quota:
+    each answer's label depends only on its top source's scores, plus the
+    "couldn't find it" downgrade.
+    """
+    from app.models.schemas import ReliabilityLabel, RetrievalResult
+    from app.modules import llm_answer, reliability, retrieval
+
+    saved = json.loads((RESULTS_DIR / "results.json").read_text(encoding="utf-8"))
+    for row in saved["qa"]:
+        if row["top_similarity"] is None:
+            label = ReliabilityLabel.UNCERTAIN
+        else:
+            sim, conf = row["top_similarity"], row["top_confidence"]
+            label = reliability.classify_reliability(
+                [RetrievalResult(chunk_id="-", similarity=sim, confidence=conf, combined_score=retrieval.combined_score(sim, conf))]
+            )
+        if row["answer"] in (llm_answer.NOT_FOUND_ANSWER, llm_answer.NO_DOCUMENTS_ANSWER):
+            label = reliability.worse_of(label, ReliabilityLabel.UNCERTAIN)
+        row["label"] = label.value
+
+    rec = saved["recognition"]
+    qa_rec = [r for r in rec if not r["doc"].startswith("cal_")]
+    cal_rec = [r for r in rec if r["doc"].startswith("cal_")]
+    (RESULTS_DIR / "results.json").write_text(json.dumps(saved, indent=2), encoding="utf-8")
+    report = write_report(qa_rec, cal_rec, saved["calibration"], saved["qa"], fitted=True)
+    (RESULTS_DIR / "report.md").write_text(report, encoding="utf-8")
+    print(f"Rescored {len(saved['qa'])} answers. Report: {RESULTS_DIR / 'report.md'}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--fit-calibration", action="store_true", help="save fitted tables to data/calibration.json")
     parser.add_argument("--skip-qa", action="store_true", help="recognition + calibration only (no Gemini calls)")
+    parser.add_argument(
+        "--rescore", action="store_true", help="relabel saved results with current reliability thresholds (no API calls)"
+    )
     args = parser.parse_args()
+    if args.rescore:
+        rescore()
+        return
 
     manifest_path = DATASET_DIR / "dataset.json"
     if not manifest_path.is_file():
@@ -330,17 +373,25 @@ def main() -> None:
         for r in qa_rec:
             r["calibrated_conf"] = confidence_capture.calibrate(r["raw_conf"], FormatType(r["extractor"]))
 
-    qa_rows = []
+    qa_rows, qa_errors = [], []
     if not args.skip_qa:
         print("Phase 3: question answering", flush=True)
-        qa_rows = evaluate_qa(manifest)
+        qa_rows = evaluate_qa(manifest, qa_errors)
 
     RESULTS_DIR.mkdir(exist_ok=True)
     (RESULTS_DIR / "results.json").write_text(
-        json.dumps({"recognition": qa_rec + cal_rec, "calibration": calibration, "qa": qa_rows}, indent=2),
+        json.dumps(
+            {"recognition": qa_rec + cal_rec, "calibration": calibration, "qa": qa_rows, "qa_errors": qa_errors},
+            indent=2,
+        ),
         encoding="utf-8",
     )
-    (RESULTS_DIR / "report.md").write_text(write_report(qa_rec, cal_rec, calibration, qa_rows, args.fit_calibration), encoding="utf-8")
+    report = write_report(qa_rec, cal_rec, calibration, qa_rows, args.fit_calibration)
+    if qa_errors:
+        report += "\n## Questions that failed\n\n" + "\n".join(
+            f"- HTTP {e['status']}: {e['question']} ({e['detail']})" for e in qa_errors
+        ) + "\n"
+    (RESULTS_DIR / "report.md").write_text(report, encoding="utf-8")
     print(f"Report: {RESULTS_DIR / 'report.md'}")
 
 

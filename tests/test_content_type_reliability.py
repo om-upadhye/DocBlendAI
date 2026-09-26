@@ -129,7 +129,7 @@ def _result(similarity: float, confidence: float) -> RetrievalResult:
     [
         (0.80, 1.00, ReliabilityLabel.CERTAIN),  # typed, strong match
         (0.80, 0.70, ReliabilityLabel.MODERATE),  # strong match, partly legible
-        (0.70, 1.00, ReliabilityLabel.MODERATE),  # typed, loose match
+        (0.62, 1.00, ReliabilityLabel.MODERATE),  # typed, loose match
         (0.80, 0.50, ReliabilityLabel.UNCERTAIN),  # strong match, poorly legible
         (0.55, 1.00, ReliabilityLabel.UNCERTAIN),  # typed, off-topic
         (0.90, 0.20, ReliabilityLabel.UNREADABLE),  # relevant but illegible
