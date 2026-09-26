@@ -16,7 +16,9 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from pdfplumber.utils.exceptions import PdfminerException
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -33,6 +35,7 @@ from app.modules import (
     format_detection,
     htr_extractor,
     ocr_extractor,
+    page_store,
     vector_store,
 )
 
@@ -96,9 +99,54 @@ def delete_document(doc_id: str, db: Session = Depends(get_db)) -> None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
     vector_store.delete_document(doc_id)
     Path(row.file_path).unlink(missing_ok=True)
+    page_store.delete(doc_id)
     db.delete(row)
     db.commit()
     logger.info("Deleted document %s", doc_id)
+
+
+class LineView(BaseModel):
+    text: str
+    conf: float = Field(description="Calibrated recognition confidence of this line (0-1)")
+    box: list[float] = Field(description="[x0, y0, x1, y1] as fractions of the page image size")
+
+
+class PageView(BaseModel):
+    """What recognition read on one page (API-only, for the document viewer)."""
+
+    page: int
+    text: str
+    conf: float
+    image_url: str | None
+    lines: list[LineView]
+
+
+@router.get("/documents/{doc_id}/pages", response_model=list[PageView])
+def document_pages(doc_id: str, db: Session = Depends(get_db)) -> list[PageView]:
+    """Each page's recognised text, its lines with boxes and confidence, and a page image link."""
+    if db.get(DocumentORM, doc_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    pages = page_store.load(doc_id)
+    if pages is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No page view saved for this document; upload it again")
+    return [
+        PageView(
+            page=p["page"],
+            text=p["text"],
+            conf=p["conf"],
+            image_url=f"/documents/{doc_id}/pages/{p['page']}/image" if p["image"] else None,
+            lines=p["lines"],
+        )
+        for p in pages
+    ]
+
+
+@router.get("/documents/{doc_id}/pages/{page}/image", response_class=FileResponse)
+def document_page_image(doc_id: str, page: int) -> FileResponse:
+    path = page_store.image_path(doc_id, page)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No image for this page")
+    return FileResponse(path, media_type="image/jpeg")
 
 
 def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session) -> Document:
@@ -113,8 +161,9 @@ def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
     document = Document(doc_id=doc_id, file_path=str(path), format_type=format_type, page_count=pages)
+    layout: list[dict] = []  # page images + line boxes, filled by OCR/HTR, for the viewer
     try:
-        extracted = format_detection.extract(document)
+        extracted = format_detection.extract(document, layout)
     except file_types.UnreadableFileError:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, unreadable)
     except (ocr_extractor.OCRUnavailableError, htr_extractor.HTRUnavailableError) as e:
@@ -140,6 +189,13 @@ def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session
         # Keep ChromaDB and SQLite consistent: no vectors without a Document row.
         vector_store.delete_document(doc_id)
         raise
+
+    # The viewer shows calibrated confidence, the same scale the reliability labels use.
+    calibrate = lambda conf: confidence_capture.calibrate(conf, format_type)  # noqa: E731
+    for record in layout:
+        for line in record["lines"]:
+            line["conf"] = round(calibrate(line["conf"]), 4)
+    page_store.save(doc_id, str(path), [(t, calibrate(c)) for t, c in extracted], layout)
 
     mean_conf = sum(c.calibrated_conf for c in chunks) / len(chunks)
     logger.info(

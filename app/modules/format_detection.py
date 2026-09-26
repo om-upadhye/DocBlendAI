@@ -15,7 +15,7 @@ import pdfplumber
 
 from app.config import settings
 from app.models.schemas import Document, FormatType
-from app.modules import confidence_capture, htr_extractor, ocr_extractor, text_parser
+from app.modules import confidence_capture, htr_extractor, ocr_extractor, paddle_extractor, text_parser
 from app.modules.file_types import TEXT_KINDS, FileKind, kind_of
 from app.modules.pdf_render import image_page_count
 
@@ -93,9 +93,16 @@ def detect_format(file_path: str) -> FormatType:
         return FormatType.SCANNED
 
     htr_conf = confidence_capture.calibrate(
-        _mean_conf(htr_extractor.htr_file(file_path, max_pages=OCR_SAMPLE_PAGES)), FormatType.HANDWRITTEN
+        _mean_conf(handwriting_file(file_path, max_pages=OCR_SAMPLE_PAGES)), FormatType.HANDWRITTEN
     )
     return FormatType.HANDWRITTEN if htr_conf > ocr_conf else FormatType.SCANNED
+
+
+def handwriting_file(file_path: str, max_pages: int | None = None, layout: list | None = None) -> list[tuple[str, float]]:
+    """Read a handwritten document with the configured engine (settings.htr_engine)."""
+    if settings.htr_engine == "trocr":
+        return htr_extractor.htr_file(file_path, max_pages, layout)
+    return paddle_extractor.paddle_file(file_path, max_pages, layout)
 
 
 def resolve_format(file_path: str, hint: FormatType | None) -> FormatType:
@@ -112,10 +119,14 @@ def resolve_format(file_path: str, hint: FormatType | None) -> FormatType:
     return hint
 
 
-def extract(document: Document) -> list[tuple[str, float]]:
-    """Dispatch to the right extractor. Returns (page_text, raw_conf) per page."""
+def extract(document: Document, layout: list | None = None) -> list[tuple[str, float]]:
+    """Dispatch to the right extractor. Returns (page_text, raw_conf) per page.
+
+    If layout is a list, scanned and handwritten pages append {"image", "lines"}
+    records (page image + line boxes) for the document viewer.
+    """
     if document.format_type is FormatType.TYPED:
         return text_parser.parse(document.file_path)
     if document.format_type is FormatType.SCANNED:
-        return ocr_extractor.ocr_file(document.file_path)
-    return htr_extractor.htr_file(document.file_path)
+        return ocr_extractor.ocr_file(document.file_path, layout=layout)
+    return handwriting_file(document.file_path, layout=layout)

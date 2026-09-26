@@ -49,16 +49,25 @@ def main() -> int:
     except ocr_extractor.OCRUnavailableError as e:
         results.append(check("Tesseract OCR", False, str(e)))
 
-    from app.modules import htr_extractor
+    from app.modules import htr_extractor, paddle_extractor
 
-    print(f"\n  Downloading / loading handwriting model {settings.htr_model} (first time: a few hundred MB)...")
+    try:
+        paddle_extractor._engine(settings.ocr_threads)
+        results.append(check("PaddleOCR engine", True, "PP-OCRv6 via RapidOCR / ONNX Runtime (models bundled)"))
+    except htr_extractor.HTRUnavailableError as e:
+        results.append(check("PaddleOCR engine", settings.htr_engine != "paddle", str(e)))
+
+    print(f"\n  Downloading / loading TrOCR model {settings.htr_model} (optional engine; first time: a few hundred MB)...")
     try:
         htr_extractor._load(settings.htr_model)
         from huggingface_hub.constants import HF_HUB_CACHE
 
         results.append(check("TrOCR model", True, f"{settings.htr_model} ready (cache: {HF_HUB_CACHE})"))
     except htr_extractor.HTRUnavailableError as e:
-        results.append(check("TrOCR model", False, str(e)))
+        # Only required when TrOCR is the selected engine.
+        results.append(check("TrOCR model", settings.htr_engine != "trocr", str(e)))
+
+    print(f"  Handwriting engine in use: {settings.htr_engine} (set HTR_ENGINE=paddle|trocr in .env)")
 
     results.append(check(
         "Gemini API key", bool(settings.gemini_api_key),
