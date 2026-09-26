@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
+from app import __version__
 from app.config import settings
 from app.db.database import init_db
 from app.routers import query, upload
@@ -36,7 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="DocBlendAI",
     description="Confidence-aware multi-format document QA assistant.",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 

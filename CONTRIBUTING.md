@@ -24,12 +24,18 @@ for the architecture decisions (they are locked; discuss before changing them).
 4. **Gemini API key:** copy `.env.example` to `.env` and put your key after `GEMINI_API_KEY=`.
    Get a key at https://aistudio.google.com/apikey.
    > **Never put a real key in `.env.example`** or any other committed file. `.env` is git-ignored; `.env.example` is not.
-5. **Run it:**
+5. **Setup check + model download** (downloads TrOCR, ~250 MB once, and reports anything missing):
+   ```bash
+   venv/Scripts/python -m scripts.setup_models
+   ```
+6. **Run it:**
    ```bash
    venv/Scripts/python -m uvicorn app.main:app --reload
    ```
    Open http://127.0.0.1:8000/ (app) or http://127.0.0.1:8000/docs (API).
-   The first handwritten upload downloads the TrOCR model (~250 MB, once).
+
+Exact versions of everything (Python, packages, Tesseract, models) are listed in README.md.
+When you add or upgrade a package, pin the exact version in `requirements.txt` and say why in the PR.
 
 ## Daily workflow
 

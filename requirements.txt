@@ -1,24 +1,43 @@
-python-dotenv
-google-genai
-torch
-transformers
-pillow
-fastapi
-uvicorn
-python-multipart
-chromadb
-sqlalchemy
-pydantic-settings
-pytesseract
-pdfplumber
-PyPDF2
-jiwer
-pytest
-httpx2
-pypdfium2
-numpy
-sentencepiece
-protobuf
-torchvision
-python-docx
-python-pptx
+# DocBlendAI 1.0.0 — Python 3.11 (tested on 3.11.9, Windows 11)
+# Install:  python -m pip install -r requirements.txt
+# Exact versions pinned so every team machine gets the same, tested set.
+# Non-Python requirements (Tesseract OCR, the TrOCR model) are covered in README.md.
+
+# --- Web API ---------------------------------------------------------------
+fastapi==0.141.1
+uvicorn==0.53.0
+python-multipart==0.0.32        # file uploads
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
+
+# --- Storage ---------------------------------------------------------------
+chromadb==1.5.9                 # vector store
+SQLAlchemy==2.0.54              # relational store (SQLite)
+
+# --- Gemini (embeddings + answers) -----------------------------------------
+google-genai==2.25.0
+
+# --- Document reading ------------------------------------------------------
+pdfplumber==0.11.10             # typed PDFs (text layer)
+pypdfium2==5.13.0               # PDF pages -> images for OCR/HTR
+pillow==12.3.0                  # images
+python-docx==1.2.0              # Word
+python-pptx==1.0.2              # PowerPoint
+pytesseract==0.3.13             # OCR (needs the Tesseract program, see README)
+
+# --- Handwriting recognition (TrOCR) --------------------------------------
+# CPU builds from PyPI. With an NVIDIA GPU, install torch/torchvision from
+# https://pytorch.org/get-started/locally/ instead, before this file.
+torch==2.14.0
+torchvision==0.29.0
+transformers==5.17.0
+huggingface_hub==1.30.0
+sentencepiece==0.2.2            # trocr-small tokenizer
+protobuf==5.29.6
+numpy==2.4.6
+
+# --- Evaluation and tests --------------------------------------------------
+jiwer==4.0.0                    # CER / WER
+pytest==9.1.1
+httpx2==2.13.1                  # FastAPI test client
