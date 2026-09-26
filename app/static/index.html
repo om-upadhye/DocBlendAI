@@ -75,13 +75,15 @@
 <body>
 <header>
   <h1>DocBlendAI</h1>
-  <p>Ask questions about typed, scanned, and handwritten academic PDFs. Every answer says how far to trust it.</p>
+  <p>Ask questions about typed, scanned, and handwritten academic documents: PDFs, photos and scans, Word, PowerPoint, and text files. Every answer says how far to trust it.</p>
 </header>
 <main>
   <section class="panel" aria-labelledby="docs-title">
     <h2 id="docs-title">Documents</h2>
     <form id="upload-form">
-      <input type="file" id="file" accept="application/pdf,.pdf" required>
+      <input type="file" id="file" required
+             accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff,.bmp,.webp,.docx,.pptx,.txt">
+      <p class="status">PDF, image (JPG, PNG, TIFF, BMP, WEBP), Word, PowerPoint, or text</p>
       <label class="small" for="hint">Format</label>
       <select id="hint">
         <option value="">Detect automatically</option>
@@ -119,11 +121,11 @@ const WHY = {
 };
 const FORMAT_LABEL = { typed: "typed", scanned: "scanned", handwritten: "handwritten" };
 
-// The server stores uploads as "<doc_id>_<original name>.pdf"; recover the name from file_path.
+// The server stores uploads as "<doc_id>_<original name>.<ext>"; recover the name from file_path.
 const docNames = {};
 function nameFromPath(doc) {
-  const base = doc.file_path.split(/[\\/]/).pop().replace(/\.pdf$/i, "");
-  return base.startsWith(doc.doc_id + "_") ? base.slice(doc.doc_id.length + 1) + ".pdf" : base + ".pdf";
+  const base = doc.file_path.split(/[\\/]/).pop();
+  return base.startsWith(doc.doc_id + "_") ? base.slice(doc.doc_id.length + 1) : base;
 }
 function docLabel(id) { return docNames[id] || id.slice(0, 8); }
 
@@ -145,7 +147,7 @@ async function loadDocs() {
   const list = document.getElementById("docs");
   const docs = await api("/documents");
   list.replaceChildren();
-  if (!docs.length) { list.append(el("li", { class: "empty" }, "No documents yet. Upload a PDF to start.")); return; }
+  if (!docs.length) { list.append(el("li", { class: "empty" }, "No documents yet. Upload a document to start.")); return; }
   for (const d of docs) {
     docNames[d.doc_id] = nameFromPath(d);
     list.append(el("li", {},

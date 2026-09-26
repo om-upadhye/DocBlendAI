@@ -1,4 +1,4 @@
-"""Module 2 — OCR path (scanned/printed PDFs).
+"""Module 2 — OCR path (scanned/printed PDFs and images).
 
 Responsibility: rasterize pages and run pytesseract, returning page text plus
 a confidence (0-1) as raw_conf for Module 3. raw_conf is the mean of
@@ -85,9 +85,47 @@ def ocr_image(image: Image.Image) -> tuple[str, float]:
     return "\n".join(parts), weighted / chars
 
 
-def ocr_pdf(file_path: str, max_pages: int | None = None) -> list[tuple[str, float]]:
-    """Return (page_text, raw_conf) for each page (or the first max_pages)."""
+def _quick_conf(image: Image.Image) -> float:
+    """OCR confidence of a half-size copy: cheap enough to compare orientations."""
+    small = image.reduce(2) if max(image.size) > 1600 else image
+    return ocr_image(small)[1]
+
+
+def auto_orient(page: Image.Image) -> Image.Image:
+    """Turn a sideways or upside-down page upright.
+
+    Phone photos and scans often arrive rotated with no (or a wrong) EXIF tag,
+    and both OCR and HTR then read garbage. Tesseract's orientation detection
+    (OSD) proposes a rotation, but its confidence on short or handwritten pages
+    is low, so the proposal is verified: the page is OCRed as-is and rotated,
+    and the orientation that reads with higher confidence wins. Upright pages
+    (OSD says 0) cost one OSD call and nothing else.
+
+    Without Tesseract, or when OSD cannot decide (too little text), the page is
+    returned unchanged.
+    """
+    try:
+        pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd(settings.tesseract_cmd)
+        osd = pytesseract.image_to_osd(page, output_type=pytesseract.Output.DICT, timeout=OCR_TIMEOUT_SECONDS)
+    except (OCRUnavailableError, pytesseract.TesseractError, RuntimeError):
+        return page
+    rotate = int(osd.get("rotate", 0)) % 360
+    if rotate == 0:
+        return page
+
+    # OSD's rotate direction is ambiguous across versions for 90/270, so try both turns.
+    candidates = [page, page.rotate(-rotate, expand=True)]
+    if rotate in (90, 270):
+        candidates.append(page.rotate(rotate, expand=True))
+    best = max(candidates, key=_quick_conf)
+    if best is not page:
+        logger.info("Page was rotated (OSD suggested %d degrees); turned it upright", rotate)
+    return best
+
+
+def ocr_file(file_path: str, max_pages: int | None = None) -> list[tuple[str, float]]:
+    """Return (page_text, raw_conf) for each page of a PDF or image (or the first max_pages)."""
     # closing(): if OCR fails mid-document, release the PDF now, not at garbage
     # collection (Windows cannot delete a file that is still open).
     with closing(render_pages(file_path, settings.ocr_dpi, max_pages)) as pages:
-        return [ocr_image(img) for img in pages]
+        return [ocr_image(auto_orient(img)) for img in pages]

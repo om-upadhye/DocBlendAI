@@ -52,9 +52,10 @@ def test_module1_upload_saves_document(client, pdf_file, db_session_factory) -> 
         assert db.get(DocumentORM, doc.doc_id) is not None
 
 
-def test_module1_rejects_non_pdf(client) -> None:
-    resp = client.post("/upload", files={"file": ("notes.txt", b"hello", "text/plain")})
+def test_module1_rejects_unsupported_file_type(client) -> None:
+    resp = client.post("/upload", files={"file": ("setup.exe", b"MZ\x90\x00", "application/octet-stream")})
     assert resp.status_code == 415
+    assert ".pdf" in resp.json()["detail"] and ".png" in resp.json()["detail"]
 
 
 def test_module1_rejects_corrupt_pdf_and_cleans_up(client, tmp_path) -> None:

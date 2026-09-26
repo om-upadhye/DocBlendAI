@@ -1,4 +1,4 @@
-"""Module 2 — HTR path (handwritten PDFs).
+"""Module 2 — HTR path (handwritten PDFs and images).
 
 Responsibility: split each page into text lines and run TrOCR (transformers)
 on them, returning page text plus a confidence (0-1) as raw_conf for Module 3.
@@ -19,6 +19,7 @@ import numpy as np
 from PIL import Image
 
 from app.config import settings
+from app.modules import ocr_extractor
 from app.modules.pdf_render import denoise, render_pages
 
 HTR_DPI = 200  # TrOCR resizes each line to 384x384 anyway; higher DPI only slows segmentation
@@ -148,8 +149,9 @@ def htr_image(page: Image.Image) -> tuple[str, float]:
     return "\n".join(t for t, _ in recognized), sum(c * len(t) for t, c in recognized) / chars
 
 
-def htr_pdf(file_path: str, max_pages: int | None = None) -> list[tuple[str, float]]:
-    """Return (page_text, raw_conf) for each page (or the first max_pages)."""
-    # closing(): release the PDF immediately if HTR fails (see ocr_extractor.ocr_pdf).
+def htr_file(file_path: str, max_pages: int | None = None) -> list[tuple[str, float]]:
+    """Return (page_text, raw_conf) for each page of a PDF or image (or the first max_pages)."""
+    # closing(): release the PDF immediately if HTR fails (see ocr_extractor.ocr_file).
     with closing(render_pages(file_path, HTR_DPI, max_pages)) as pages:
-        return [htr_image(img) for img in pages]
+        # Orientation uses Tesseract OSD; it degrades to a no-op if Tesseract is missing.
+        return [htr_image(ocr_extractor.auto_orient(img)) for img in pages]

@@ -20,3 +20,5 @@ numpy
 sentencepiece
 protobuf
 torchvision
+python-docx
+python-pptx

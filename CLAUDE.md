@@ -20,9 +20,13 @@ jointly weighing recognition confidence and retrieval relevance.
 
 ## Scope
 
-**In scope:** typed, scanned/printed, and handwritten academic PDFs; automatic
-format detection; content-type identification (table/paragraph/image);
-confidence-aware retrieval; four-tier reliability labeling.
+**In scope:** typed, scanned/printed, and handwritten academic documents,
+uploaded as PDF, images (JPG/PNG/TIFF/BMP/WEBP, incl. phone photos),
+Word (.docx), PowerPoint (.pptx), or text (.txt); automatic format detection
+and page-orientation correction; content-type identification
+(table/paragraph/image); confidence-aware retrieval; four-tier reliability labeling.
+(The approved synopsis said "academic PDFs"; image/Office/text uploads were
+added at the team's request. Supported extensions live in `app/modules/file_types.py`.)
 
 **Out of scope:** live classroom transcription, multilingual scripts,
 real-time video content.
