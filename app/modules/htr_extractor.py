@@ -177,8 +177,8 @@ def line_bands(mask: np.ndarray) -> list[tuple[int, int]]:
     return [(t, b) for t, b in bands if b - t + 1 >= MIN_LINE_HEIGHT * h]
 
 
-def segment_lines(page: Image.Image) -> list[Image.Image]:
-    """Crop a page image into text-line images (lighting flattened), top to bottom."""
+def segment_line_boxes(page: Image.Image) -> list[tuple[tuple[int, int, int, int], Image.Image]]:
+    """Text lines of a page image, top to bottom: (pixel box, lighting-flattened crop)."""
     flat = flatten_lighting(page)
     mask = text_mask(flat)
     h, w = mask.shape
@@ -188,8 +188,13 @@ def segment_lines(page: Image.Image) -> list[Image.Image]:
     for top, bottom in line_bands(mask):
         cols = np.flatnonzero(mask[top : bottom + 1].any(axis=0))
         box = (max(0, cols[0] - pad_x), max(0, top - pad_y), min(w, cols[-1] + pad_x + 1), min(h, bottom + pad_y + 1))
-        lines.append(flat_img.crop(box))
+        lines.append((box, flat_img.crop(box)))
     return lines
+
+
+def segment_lines(page: Image.Image) -> list[Image.Image]:
+    """Crop a page image into text-line images (lighting flattened), top to bottom."""
+    return [crop for _, crop in segment_line_boxes(page)]
 
 
 def is_degenerate(text: str) -> bool:
@@ -257,17 +262,42 @@ def recognize_lines(lines: list[Image.Image]) -> list[tuple[str, float]]:
     return results
 
 
-def htr_image(page: Image.Image) -> tuple[str, float]:
-    """HTR one page image. Returns (text, raw_conf); a page with no lines gives ("", 0.0)."""
-    recognized = [(t, c) for t, c in recognize_lines(segment_lines(denoise(page))) if t and not is_degenerate(t)]
+def htr_image(page: Image.Image, lines_out: list | None = None) -> tuple[str, float]:
+    """HTR one page image. Returns (text, raw_conf); a page with no lines gives ("", 0.0).
+
+    If lines_out is a list, one {"text", "conf", "box"} dict per line is appended
+    (box as fractions of the page size, for the document viewer).
+    """
+    segments = segment_line_boxes(denoise(page))
+    w, h = page.size
+    recognized = []
+    for (text, conf), (box, _) in zip(recognize_lines([crop for _, crop in segments]), segments):
+        if not text or is_degenerate(text):
+            continue
+        recognized.append((text, conf))
+        if lines_out is not None:
+            norm = [box[0] / w, box[1] / h, box[2] / w, box[3] / h]
+            lines_out.append({"text": text, "conf": round(conf, 4), "box": [round(v, 5) for v in norm]})
     chars = sum(len(t) for t, _ in recognized)
     if not chars:
         return "", 0.0
     return "\n".join(t for t, _ in recognized), sum(c * len(t) for t, c in recognized) / chars
 
 
-def htr_file(file_path: str, max_pages: int | None = None) -> list[tuple[str, float]]:
-    """Return (page_text, raw_conf) for each page of a PDF or image (or the first max_pages)."""
+def htr_file(file_path: str, max_pages: int | None = None, layout: list | None = None) -> list[tuple[str, float]]:
+    """Return (page_text, raw_conf) for each page of a PDF or image (or the first max_pages).
+
+    If layout is a list, one {"image", "lines"} record per page is appended for the viewer.
+    """
+    if layout is not None:
+        results = []
+        with closing(render_pages(file_path, HTR_DPI, max_pages)) as pages:
+            for img in pages:
+                img = ocr_extractor.auto_orient(img)
+                lines: list = []
+                results.append(htr_image(img, lines))
+                layout.append({"image": img, "lines": lines})
+        return results
     # closing(): release the PDF immediately if HTR fails (see ocr_extractor.ocr_file).
     with closing(render_pages(file_path, HTR_DPI, max_pages)) as pages:
         # Orientation uses Tesseract OSD; it degrades to a no-op if Tesseract is missing.

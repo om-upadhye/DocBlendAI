@@ -1,6 +1,6 @@
 # DocBlendAI
 
-**Version 1.0.0** · Final-year B.Tech project (Group C4), Dept. of CSE, PRMIT&R Badnera
+**Version 1.1.0** · Final-year B.Tech project (Group C4), Dept. of CSE, PRMIT&R Badnera
 
 Confidence-aware multi-format document QA assistant: upload typed, scanned, or
 handwritten academic documents and ask questions. Every answer carries a reliability
@@ -20,7 +20,8 @@ project context.
 | Python | **3.11** (tested 3.11.9) | https://www.python.org/downloads/release/python-3119/ (tick "Add python.exe to PATH") |
 | Python packages | pinned in [`requirements.txt`](requirements.txt) | `pip install -r requirements.txt` (step 3 below) |
 | Tesseract OCR | **5.4.0** (UB Mannheim build, includes `eng` + `osd` data) | `winget install UB-Mannheim.TesseractOCR` |
-| TrOCR handwriting model | `microsoft/trocr-small-handwritten` (~250 MB) | downloaded by `scripts.setup_models` (step 5) into `%USERPROFILE%\.cache\huggingface` |
+| Handwriting engine (default) | PaddleOCR **PP-OCRv6** models via RapidOCR 3.9.2 + ONNX Runtime 1.30.0 (~30 MB, bundled; no PaddlePaddle, no GPU) | installed with `requirements.txt` |
+| TrOCR handwriting model (optional, `HTR_ENGINE=trocr`) | `microsoft/trocr-small-handwritten` (~250 MB) | downloaded by `scripts.setup_models` (step 5) into `%USERPROFILE%\.cache\huggingface` |
 | Gemini API key | free tier works | https://aistudio.google.com/apikey |
 | Gemini models (cloud) | `gemini-embedding-001` (embeddings), `gemini-3.5-flash-lite` (answers) | nothing to download; set in `.env` if you want others |
 
@@ -64,7 +65,9 @@ PyTorch 2.14.0 (CPU) · transformers 5.17.0 · pytesseract 0.3.13 · pdfplumber 
 venv/Scripts/python -m uvicorn app.main:app --reload
 ```
 
-- **App:** http://127.0.0.1:8000/ to upload documents, tick which ones to ask about, ask questions, and see reliability labels and sources
+- **App:** http://127.0.0.1:8000/ to upload documents, tick which ones to ask about, ask questions, and see reliability labels and sources.
+  **View** on a document opens the page viewer: each page image with every recognised line boxed and
+  coloured by confidence (green clear / amber partly legible / red poor), next to the recognised text.
 - **API docs:** http://127.0.0.1:8000/docs
 
 If the server refuses to start with "database is out of date", delete `data/docblendai.db`
@@ -76,7 +79,9 @@ and the contents of `data/chroma_db/` (local dev data), restart, and re-upload.
 |---|---|---|
 | POST | `/upload` | Upload a PDF, image, .docx, .pptx, or .txt (optional `format_hint`: typed / scanned / handwritten) |
 | GET | `/documents` | List uploaded documents (oldest first) |
-| DELETE | `/documents/{id}` | Remove a document (database, vector store, and file) |
+| DELETE | `/documents/{id}` | Remove a document (database, vector store, file, and page view) |
+| GET | `/documents/{id}/pages` | Page viewer data: recognised text, lines with boxes and confidence, image link |
+| GET | `/documents/{id}/pages/{n}/image` | The page image recognition read |
 | POST | `/ask` | Ask a question → answer + reliability label. Optional `doc_ids` limits it to those documents; omit to search all |
 | GET | `/answer/{id}` | Fetch a stored answer |
 | GET | `/answer/{id}/sources` | Chunks behind an answer, with similarity, confidence, content type |
@@ -111,7 +116,9 @@ app/
 │   ├── file_types.py        Modules 1-2: supported upload formats
 │   ├── pdf_render.py        Module 2: PDF pages / image files -> page images, denoise
 │   ├── ocr_extractor.py     Module 2: pytesseract OCR, page-orientation correction
-│   ├── htr_extractor.py     Module 2: TrOCR HTR, incl. ruled-notebook line segmentation
+│   ├── paddle_extractor.py  Module 2: handwriting via PaddleOCR PP-OCRv6 (default engine)
+│   ├── htr_extractor.py     Module 2: TrOCR HTR (optional engine), ruled-notebook segmentation
+│   ├── page_store.py        Modules 1-2: page images + line boxes for the viewer
 │   ├── confidence_capture.py Module 3: raw -> calibrated confidence
 │   ├── content_type.py      Module 4: table / paragraph / image labeling
 │   ├── chunker.py           Modules 4/5: split text into chunks

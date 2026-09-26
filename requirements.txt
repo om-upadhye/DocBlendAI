@@ -1,4 +1,4 @@
-# DocBlendAI 1.0.0 — Python 3.11 (tested on 3.11.9, Windows 11)
+# DocBlendAI 1.1.0 - Python 3.11 (tested on 3.11.9, Windows 11)
 # Install:  python -m pip install -r requirements.txt
 # Exact versions pinned so every team machine gets the same, tested set.
 # Non-Python requirements (Tesseract OCR, the TrOCR model) are covered in README.md.
@@ -26,7 +26,14 @@ python-docx==1.2.0              # Word
 python-pptx==1.0.2              # PowerPoint
 pytesseract==0.3.13             # OCR (needs the Tesseract program, see README)
 
-# --- Handwriting recognition (TrOCR) --------------------------------------
+# --- Handwriting recognition: PaddleOCR models (default engine) ------------
+# PaddleOCR's PP-OCRv6 models run through RapidOCR on ONNX Runtime: no
+# PaddlePaddle framework, CPU-friendly, models bundled in the package (~30 MB).
+rapidocr==3.9.2
+onnxruntime==1.30.0
+opencv-python==5.0.0.93
+
+# --- Handwriting recognition: TrOCR (optional engine, HTR_ENGINE=trocr) ------
 # CPU builds from PyPI. With an NVIDIA GPU, install torch/torchvision from
 # https://pytorch.org/get-started/locally/ instead, before this file.
 torch==2.14.0

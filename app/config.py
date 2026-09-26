@@ -36,7 +36,12 @@ class Settings(BaseSettings):
     # Mean Tesseract confidence (0-1) on a page with no text layer: at or above -> printed scan,
     # below -> treated as handwriting. First guess; tune on real samples.
     scanned_min_ocr_conf: float = 0.6
-    # Small model by default: runs on CPU laptops. trocr-base-handwritten is more accurate but ~4x slower.
+    # Handwriting engine. "paddle": PaddleOCR's PP-OCRv6 models run through RapidOCR/ONNX Runtime
+    # (no PaddlePaddle framework): finds every line itself, ~3 s/page on CPU, and on real ruled-notebook
+    # scans read far better than TrOCR. "trocr": the synopsis's TrOCR, kept for comparison.
+    htr_engine: str = "paddle"
+    ocr_threads: int = 2  # CPU threads for the Paddle engine; keeps a laptop or small server responsive
+    # TrOCR (when htr_engine="trocr"): small runs on CPU; trocr-base-handwritten is more accurate but ~4x slower.
     htr_model: str = "microsoft/trocr-small-handwritten"
     calibration_file: Path = DATA_DIR / "calibration.json"
 

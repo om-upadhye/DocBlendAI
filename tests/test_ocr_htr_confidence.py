@@ -9,7 +9,14 @@ from PIL import Image, ImageDraw
 
 from app.config import settings
 from app.models.schemas import FormatType, RecognizedChunk
-from app.modules import confidence_capture, format_detection, htr_extractor, ocr_extractor, vector_store
+from app.modules import (
+    confidence_capture,
+    format_detection,
+    htr_extractor,
+    ocr_extractor,
+    paddle_extractor,
+    vector_store,
+)
 from app.modules.pdf_render import render_pages
 from tests.conftest import TYPED_PAGE, fake_embed
 
@@ -348,11 +355,14 @@ def test_upload_without_tesseract_is_503_and_cleans_up(client, pdf_file, tmp_pat
     assert not any((tmp_path / "uploads").iterdir())
 
 
-def test_upload_without_htr_model_is_503(client, pdf_file, monkeypatch) -> None:
-    def _missing(image):
-        raise htr_extractor.HTRUnavailableError("model not downloaded")
+@pytest.mark.parametrize("engine", ["paddle", "trocr"])
+def test_upload_without_htr_model_is_503(client, pdf_file, monkeypatch, engine) -> None:
+    def _missing(image, lines_out=None):
+        raise htr_extractor.HTRUnavailableError("model not available")
 
+    monkeypatch.setattr(settings, "htr_engine", engine)
     monkeypatch.setattr(htr_extractor, "htr_image", _missing)
+    monkeypatch.setattr(paddle_extractor, "read_image", _missing)
 
     assert _upload(client, pdf_file([""]), format_hint="handwritten").status_code == 503
 

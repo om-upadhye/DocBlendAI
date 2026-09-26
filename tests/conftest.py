@@ -16,7 +16,7 @@ from app.config import settings
 from app.db import models  # noqa: F401  (registers tables on Base.metadata)
 from app.db.database import Base, get_db
 from app.main import app
-from app.modules import confidence_capture, embedder, htr_extractor, ocr_extractor, vector_store
+from app.modules import confidence_capture, embedder, htr_extractor, ocr_extractor, paddle_extractor, vector_store
 
 
 def make_pdf(pages: list[str]) -> bytes:
@@ -130,8 +130,10 @@ def fake_ocr(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """Replace Tesseract: every page image OCRs to (fake.text, fake.conf)."""
     fake = SimpleNamespace(text="", conf=0.0, calls=0)
 
-    def _ocr_image(image):
+    def _ocr_image(image, lines_out=None):
         fake.calls += 1
+        if lines_out is not None and fake.text:
+            lines_out.append({"text": fake.text, "conf": fake.conf, "box": [0.1, 0.1, 0.9, 0.2]})
         return fake.text, fake.conf
 
     monkeypatch.setattr(ocr_extractor, "ocr_image", _ocr_image)
@@ -140,10 +142,27 @@ def fake_ocr(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 @pytest.fixture
 def fake_htr(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    """Replace TrOCR: every page image reads as (fake.text, fake.conf)."""
+    """Replace handwriting recognition (both engines): every page reads as (fake.text, fake.conf)."""
     fake = SimpleNamespace(text="", conf=0.0)
-    monkeypatch.setattr(htr_extractor, "htr_image", lambda image: (fake.text, fake.conf))
+
+    def _read(image, lines_out=None):
+        if lines_out is not None and fake.text:
+            lines_out.append({"text": fake.text, "conf": fake.conf, "box": [0.1, 0.3, 0.8, 0.4]})
+        return fake.text, fake.conf
+
+    monkeypatch.setattr(htr_extractor, "htr_image", _read)
+    monkeypatch.setattr(paddle_extractor, "read_image", _read)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def no_real_paddle_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests must never run the real PaddleOCR engine: use the fake_htr fixture."""
+
+    def _refuse(threads):
+        pytest.fail("a test tried to run the real PaddleOCR engine; use the fake_htr fixture")
+
+    monkeypatch.setattr(paddle_extractor, "_engine", _refuse)
 
 
 @pytest.fixture

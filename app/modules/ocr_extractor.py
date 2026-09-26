@@ -45,8 +45,12 @@ def _tesseract_cmd(configured: str) -> str:
     )
 
 
-def ocr_image(image: Image.Image) -> tuple[str, float]:
-    """OCR one page image. Returns (text, raw_conf); a page with no words gives ("", 0.0)."""
+def ocr_image(image: Image.Image, lines_out: list | None = None) -> tuple[str, float]:
+    """OCR one page image. Returns (text, raw_conf); a page with no words gives ("", 0.0).
+
+    If lines_out is a list, one {"text", "conf", "box"} dict per text line is appended,
+    box = [x0, y0, x1, y1] as fractions of the image size (for the document viewer).
+    """
     pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd(settings.tesseract_cmd)
     try:
         data = pytesseract.image_to_data(
@@ -61,27 +65,43 @@ def ocr_image(image: Image.Image) -> tuple[str, float]:
     # Rebuild text from word boxes: words on the same line joined by spaces,
     # lines by newlines, paragraphs by a blank line. conf == -1 marks non-word boxes.
     lines: dict[tuple[int, int, int], list[str]] = {}
+    # Per line: [weighted conf, chars, x0, y0, x1, y1] for the viewer's boxes.
+    stats: dict[tuple[int, int, int], list[float]] = {}
     weighted, chars = 0.0, 0
-    for word, conf, block, par, line in zip(
-        data["text"], data["conf"], data["block_num"], data["par_num"], data["line_num"]
+    n = len(data["text"])
+    boxes = zip(*(data.get(k, [0] * n) for k in ("left", "top", "width", "height")))
+    for word, conf, block, par, line, (left, top, width, height) in zip(
+        data["text"], data["conf"], data["block_num"], data["par_num"], data["line_num"], boxes
     ):
         word = word.strip()
         if not word or float(conf) < 0:
             continue
-        lines.setdefault((block, par, line), []).append(word)
+        key = (block, par, line)
+        lines.setdefault(key, []).append(word)
         weighted += float(conf) / 100 * len(word)
         chars += len(word)
+        s = stats.setdefault(key, [0.0, 0, left, top, left + width, top + height])
+        s[0] += float(conf) / 100 * len(word)
+        s[1] += len(word)
+        s[2], s[3] = min(s[2], left), min(s[3], top)
+        s[4], s[5] = max(s[4], left + width), max(s[5], top + height)
 
     if not chars:
         return "", 0.0
 
     parts: list[str] = []
     prev_par = None
-    for (block, par, _), words in lines.items():  # dicts keep Tesseract's reading order
+    w, h = image.size
+    for key, words in lines.items():  # dicts keep Tesseract's reading order
+        block, par, _ = key
         if prev_par is not None and (block, par) != prev_par:
             parts.append("")
         parts.append(" ".join(words))
         prev_par = (block, par)
+        if lines_out is not None:
+            s = stats[key]
+            box = [s[2] / w, s[3] / h, s[4] / w, s[5] / h]
+            lines_out.append({"text": " ".join(words), "conf": round(s[0] / s[1], 4), "box": [round(v, 5) for v in box]})
     return "\n".join(parts), weighted / chars
 
 
@@ -123,9 +143,21 @@ def auto_orient(page: Image.Image) -> Image.Image:
     return best
 
 
-def ocr_file(file_path: str, max_pages: int | None = None) -> list[tuple[str, float]]:
-    """Return (page_text, raw_conf) for each page of a PDF or image (or the first max_pages)."""
+def ocr_file(file_path: str, max_pages: int | None = None, layout: list | None = None) -> list[tuple[str, float]]:
+    """Return (page_text, raw_conf) for each page of a PDF or image (or the first max_pages).
+
+    If layout is a list, one {"image", "lines"} record per page is appended for the viewer.
+    """
+    results = []
     # closing(): if OCR fails mid-document, release the PDF now, not at garbage
     # collection (Windows cannot delete a file that is still open).
     with closing(render_pages(file_path, settings.ocr_dpi, max_pages)) as pages:
-        return [ocr_image(auto_orient(img)) for img in pages]
+        for img in pages:
+            img = auto_orient(img)
+            if layout is None:
+                results.append(ocr_image(img))
+            else:
+                lines: list = []
+                results.append(ocr_image(img, lines))
+                layout.append({"image": img, "lines": lines})
+    return results
