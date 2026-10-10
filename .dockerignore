@@ -1,0 +1,13 @@
+# Keep the build context small and secrets out of the image.
+.env
+.git
+.claude
+venv/
+**/__pycache__
+**/*.pyc
+.pytest_cache/
+data/
+!data/calibration.json
+evaluation/
+tests/
+scripts/

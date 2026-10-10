@@ -179,6 +179,25 @@
   .v-text { margin: 0; padding: 18px; white-space: pre-wrap; font: 14px/1.6 "Segoe UI", system-ui, sans-serif; }
   .v-empty { color: var(--muted); padding: 28px 18px; }
   .c-high { color: var(--mint); } .c-mid { color: var(--amber); } .c-low { color: var(--rose); }
+  /* typed documents: one colour per content type */
+  .t-paragraph { color: var(--accent); } .t-table { color: var(--violet); } .t-image { color: var(--amber); }
+  .v-lines .kind { font: 700 11px "Segoe UI", system-ui, sans-serif; flex: none; padding: 1px 8px; border-radius: 999px; min-width: 64px; text-align: center; }
+  .v-lines li.t-paragraph .kind { background: var(--accent-soft); } .v-lines li.t-table .kind { background: var(--violet-soft); }
+  .v-lines li.t-image .kind { background: var(--amber-soft); }
+  .v-lines li .ltext { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .v-paper { margin: 0 auto; max-width: 840px; background: #fff; border-radius: 6px; box-shadow: var(--shadow); padding: 28px 32px; }
+  .v-block { position: relative; border: 2px solid currentColor; border-radius: 8px; padding: 10px 12px; margin: 0 0 14px;
+             background: color-mix(in srgb, currentColor 4%, #fff); cursor: pointer; }
+  .v-block.hi { background: color-mix(in srgb, currentColor 14%, #fff); }
+  .v-block .tag { position: absolute; top: -9px; right: 10px; font: 700 10px "Segoe UI", system-ui, sans-serif; text-transform: uppercase;
+                  letter-spacing: .04em; background: #fff; padding: 0 6px; }
+  .v-block p { margin: 0; white-space: pre-wrap; color: var(--text); font-size: 14px; }
+  .v-block .tbl { overflow-x: auto; }
+  .v-block table { border-collapse: collapse; font-size: 13px; color: var(--text); min-width: 100%; }
+  .v-block td { border: 1px solid var(--line); padding: 4px 8px; vertical-align: top; }
+  .v-block tr:first-child td { font-weight: 600; background: var(--soft); }
+  .v-block img { display: block; max-width: 100%; max-height: 420px; margin: 0 auto; }
+  .v-block .caption { margin-top: 6px; font-size: 12px; color: var(--muted); text-align: center; }
   @media (max-width: 860px) {
     .v-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr); }
     .v-side { border-left: 0; border-top: 1px solid var(--line); }
@@ -264,9 +283,7 @@
   <div class="v-shell">
     <div class="v-head">
       <h3 id="v-title">Document</h3>
-      <div class="legend" aria-label="How clearly each line was read">
-        <span class="c-high"><i></i>clear</span><span class="c-mid"><i></i>partly legible</span><span class="c-low"><i></i>hard to read</span>
-      </div>
+      <div class="legend" id="v-legend"></div>
       <div class="pager">
         <button type="button" id="v-prev" aria-label="Previous page">‹</button>
         <span id="v-pageinfo"></span>
@@ -539,6 +556,34 @@ questionBox.addEventListener("input", () => { questionBox.style.height = "auto";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const viewer = { pages: [], index: 0, doc: null };
 function confClass(c) { return c >= 0.85 ? "c-high" : c >= 0.6 ? "c-mid" : "c-low"; }  // same cut-offs as the labels
+const LEGEND_CONF = [["c-high", "clear"], ["c-mid", "partly legible"], ["c-low", "hard to read"]];
+const BLOCK = { paragraph: ["Paragraph", "paragraphs"], table: ["Table", "tables"], image: ["Picture", "pictures"] };
+const LEGEND_TYPES = Object.entries(BLOCK).map(([type, [name]]) => [`t-${type}`, name.toLowerCase()]);
+function setLegend(entries, label) {
+  const legend = document.getElementById("v-legend");
+  legend.setAttribute("aria-label", label);
+  legend.replaceChildren(...entries.map(([cls, text]) => el("span", { class: cls }, el("i"), text)));
+}
+
+// Hovering either the shape on the page or its row in the list highlights both.
+function linkHover(shape, item) {
+  const on = (scroll) => { shape.classList.add("hi"); item.classList.add("hi"); if (scroll) item.scrollIntoView({ block: "nearest" }); };
+  const off = () => { shape.classList.remove("hi"); item.classList.remove("hi"); };
+  item.addEventListener("mouseenter", () => on(false)); item.addEventListener("mouseleave", off);
+  shape.addEventListener("mouseenter", () => on(true)); shape.addEventListener("mouseleave", off);
+  item.addEventListener("click", () => shape.scrollIntoView({ block: "center", behavior: "smooth" }));
+}
+
+function boxRect(box, cls, tipText) {
+  const [x0, y0, x1, y1] = box;
+  const rect = document.createElementNS(SVG_NS, "rect");
+  Object.entries({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 }).forEach(([k, v]) => rect.setAttribute(k, v));
+  rect.setAttribute("class", cls);
+  const tip = document.createElementNS(SVG_NS, "title");
+  tip.textContent = tipText;
+  rect.append(tip);
+  return rect;
+}
 
 async function openViewer(doc) {
   viewer.doc = doc; viewer.index = 0; viewer.pages = [];
@@ -561,6 +606,8 @@ function renderPage() {
   document.getElementById("v-prev").disabled = viewer.index === 0;
   document.getElementById("v-next").disabled = viewer.index === viewer.pages.length - 1;
 
+  if (viewer.doc.format_type === "typed") { renderBlocks(page); return; }
+  setLegend(LEGEND_CONF, "How clearly each line was read");
   if (!page.image_url) {  // Word / PowerPoint / text: just the text
     body.style.gridTemplateColumns = "1fr";
     body.replaceChildren(el("div", { class: "v-page" }, el("pre", { class: "v-text" }, page.text || "(this page has no text)")));
@@ -579,23 +626,79 @@ function renderPage() {
   }
   page.lines.forEach((line) => {
     const cls = confClass(line.conf);
-    const [x0, y0, x1, y1] = line.box;
-    const rect = document.createElementNS(SVG_NS, "rect");
-    Object.entries({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 }).forEach(([k, v]) => rect.setAttribute(k, v));
-    rect.setAttribute("class", cls);
-    const tip = document.createElementNS(SVG_NS, "title");
-    tip.textContent = `${Math.round(line.conf * 100)}%  ${line.text}`;
-    rect.append(tip);
+    const rect = boxRect(line.box, cls, `${Math.round(line.conf * 100)}%  ${line.text}`);
     svg.append(rect);
     const item = el("li", { class: cls }, el("span", { class: "conf" }, `${Math.round(line.conf * 100)}%`), el("span", { class: "ltext" }, line.text));
     list.append(item);
-    const on = (scroll) => { rect.classList.add("hi"); item.classList.add("hi"); if (scroll) item.scrollIntoView({ block: "nearest" }); };
-    const off = () => { rect.classList.remove("hi"); item.classList.remove("hi"); };
-    item.addEventListener("mouseenter", () => on(false)); item.addEventListener("mouseleave", off);
-    rect.addEventListener("mouseenter", () => on(true)); rect.addEventListener("mouseleave", off);
+    linkHover(rect, item);
   });
   const img = el("img", { src: page.image_url, alt: `Page ${page.page} of ${docLabel(viewer.doc.doc_id)}` });
   body.replaceChildren(el("div", { class: "v-page" }, el("div", { class: "v-frame" }, img, svg)), side);
+}
+
+// ---------- typed documents: paragraphs, tables, pictures ----------
+function blockSummary(b) {
+  if (b.type === "table") {
+    const cols = Math.max(0, ...b.rows.map((r) => r.length));
+    return `${b.rows.length} rows × ${cols} columns: ${(b.rows[0] || []).join(" · ")}`;
+  }
+  if (b.type === "image") return b.text ? `Picture: ${b.text}` : "Picture";
+  return b.text;
+}
+
+// Word / PowerPoint / text files have no page image, so rebuild the page from its blocks.
+function blockCard(b) {
+  const card = el("div", { class: `v-block t-${b.type}` }, el("span", { class: "tag" }, BLOCK[b.type][0]));
+  if (b.type === "table") {
+    const table = el("table");
+    b.rows.forEach((row) => table.append(el("tr", {}, ...row.map((cell) => el("td", {}, cell)))));
+    card.append(el("div", { class: "tbl" }, table));
+  } else if (b.type === "image") {
+    card.append(b.picture_url ? el("img", { src: b.picture_url, alt: b.text || "Picture from the document" })
+                              : el("p", {}, "(a picture or chart the browser can't show)"));
+    if (b.text) card.append(el("div", { class: "caption" }, b.text));
+  } else {
+    card.append(el("p", {}, b.text));
+  }
+  return card;
+}
+
+function renderBlocks(page) {
+  const body = document.getElementById("v-body");
+  setLegend(LEGEND_TYPES, "What kind of content each outlined part is");
+  const counts = Object.keys(BLOCK).map((t) => [t, page.blocks.filter((b) => b.type === t).length]).filter(([, n]) => n);
+  document.getElementById("v-pageinfo").textContent = `Page ${page.page} of ${viewer.pages.length} · ` +
+    (counts.map(([t, n]) => `${n} ${n === 1 ? BLOCK[t][0].toLowerCase() : BLOCK[t][1]}`).join(", ") || "no text");
+  body.style.gridTemplateColumns = "";
+
+  const list = el("ol", { class: "v-lines", "aria-label": "Parts of this page" });
+  const side = el("div", { class: "v-side" }, el("h4", {}, `What I found · ${page.blocks.length} parts (hover to find them on the page)`), list);
+  if (!page.blocks.length) side.replaceChildren(el("h4", {}, "Text on this page"), el("pre", { class: "v-text" }, page.text || "(no text)"));
+
+  const onImage = page.image_url && page.blocks.every((b) => b.box);
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 1 1");
+  svg.setAttribute("preserveAspectRatio", "none");
+  const paper = el("div", { class: "v-paper" });
+
+  page.blocks.forEach((b) => {
+    const cls = `t-${b.type}`;
+    const item = el("li", { class: cls }, el("span", { class: "kind" }, BLOCK[b.type][0]), el("span", { class: "ltext" }, blockSummary(b)));
+    list.append(item);
+    let shape;
+    if (onImage) { shape = boxRect(b.box, cls, `${BLOCK[b.type][0]}: ${blockSummary(b).slice(0, 200)}`); svg.append(shape); }
+    else { shape = blockCard(b); paper.append(shape); }
+    linkHover(shape, item);
+  });
+
+  let left;
+  if (onImage) {
+    const img = el("img", { src: page.image_url, alt: `Page ${page.page} of ${docLabel(viewer.doc.doc_id)}` });
+    left = el("div", { class: "v-frame" }, img, svg);
+  } else {
+    left = page.blocks.length ? paper : el("div", { class: "v-paper" }, el("pre", { class: "v-text" }, page.text || "(this page has no text)"));
+  }
+  body.replaceChildren(el("div", { class: "v-page" }, left), side);
 }
 
 document.getElementById("v-prev").addEventListener("click", () => { if (viewer.index > 0) { viewer.index--; renderPage(); } });

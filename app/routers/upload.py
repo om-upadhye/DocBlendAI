@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.database import get_db
 from app.db.models import DocumentORM
-from app.models.schemas import Document, FormatType
+from app.models.schemas import ContentType, Document, FormatType
 from app.modules import (
     chunker,
     confidence_capture,
@@ -111,21 +111,38 @@ class LineView(BaseModel):
     box: list[float] = Field(description="[x0, y0, x1, y1] as fractions of the page image size")
 
 
+class BlockView(BaseModel):
+    """A paragraph, table, or picture on a typed page (API-only, for the document viewer)."""
+
+    type: ContentType
+    text: str
+    box: list[float] | None = Field(description="[x0, y0, x1, y1] as page fractions; only on PDF pages")
+    rows: list[list[str]] | None = Field(None, description="Table cells, row by row (tables only)")
+    picture_url: str | None = Field(None, description="The picture itself, if the browser can show it (pictures only)")
+
+
 class PageView(BaseModel):
-    """What recognition read on one page (API-only, for the document viewer)."""
+    """What recognition read on one page (API-only, for the document viewer).
+
+    Scanned and handwritten pages list recognised lines; typed pages list blocks.
+    """
 
     page: int
     text: str
     conf: float
     image_url: str | None
     lines: list[LineView]
+    blocks: list[BlockView]
 
 
 @router.get("/documents/{doc_id}/pages", response_model=list[PageView])
 def document_pages(doc_id: str, db: Session = Depends(get_db)) -> list[PageView]:
-    """Each page's recognised text, its lines with boxes and confidence, and a page image link."""
-    if db.get(DocumentORM, doc_id) is None:
+    """Each page's text, its recognised lines (scans) or blocks (typed), and a page image link."""
+    row = db.get(DocumentORM, doc_id)
+    if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    if row.format_type == FormatType.TYPED:
+        page_store.ensure_blocks(doc_id, row.file_path)  # typed uploads from before blocks existed
     pages = page_store.load(doc_id)
     if pages is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No page view saved for this document; upload it again")
@@ -136,6 +153,13 @@ def document_pages(doc_id: str, db: Session = Depends(get_db)) -> list[PageView]
             conf=p["conf"],
             image_url=f"/documents/{doc_id}/pages/{p['page']}/image" if p["image"] else None,
             lines=p["lines"],
+            blocks=[
+                BlockView(
+                    **{k: v for k, v in b.items() if k != "picture"},
+                    picture_url=f"/documents/{doc_id}/pictures/{b['picture']}" if b.get("picture") else None,
+                )
+                for b in p.get("blocks", [])
+            ],
         )
         for p in pages
     ]
@@ -147,6 +171,15 @@ def document_page_image(doc_id: str, page: int) -> FileResponse:
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No image for this page")
     return FileResponse(path, media_type="image/jpeg")
+
+
+@router.get("/documents/{doc_id}/pictures/{name}", response_class=FileResponse)
+def document_picture(doc_id: str, name: str) -> FileResponse:
+    """A picture found in a typed document (see BlockView.picture_url)."""
+    path = page_store.picture_path(doc_id, name)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such picture")
+    return FileResponse(path, media_type="image/png")
 
 
 def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session) -> Document:
@@ -195,7 +228,9 @@ def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session
     for record in layout:
         for line in record["lines"]:
             line["conf"] = round(calibrate(line["conf"]), 4)
-    page_store.save(doc_id, str(path), [(t, calibrate(c)) for t, c in extracted], layout)
+    page_store.save(
+        doc_id, str(path), [(t, calibrate(c)) for t, c in extracted], layout, typed=format_type is FormatType.TYPED
+    )
 
     mean_conf = sum(c.calibrated_conf for c in chunks) / len(chunks)
     logger.info(

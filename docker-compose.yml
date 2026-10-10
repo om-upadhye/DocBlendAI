@@ -1,0 +1,15 @@
+# docker compose up --build   ->  http://localhost:8000
+# Reads GEMINI_API_KEY (and any other settings) from .env.
+services:
+  docblendai:
+    build: .
+    image: docblendai
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - docblendai-data:/data
+    restart: unless-stopped
+
+volumes:
+  docblendai-data:
