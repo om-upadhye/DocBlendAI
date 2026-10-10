@@ -1,6 +1,6 @@
 # DocBlendAI
 
-**Version 1.1.0** · Final-year B.Tech project (Group C4), Dept. of CSE, PRMIT&R Badnera
+**Version 1.2.0** · Final-year B.Tech project (Group C4), Dept. of CSE, PRMIT&R Badnera
 
 Confidence-aware multi-format document QA assistant: upload typed, scanned, or
 handwritten academic documents and ask questions. Every answer carries a reliability
@@ -68,10 +68,35 @@ venv/Scripts/python -m uvicorn app.main:app --reload
 - **App:** http://127.0.0.1:8000/ to upload documents, tick which ones to ask about, ask questions, and see reliability labels and sources.
   **View** on a document opens the page viewer: each page image with every recognised line boxed and
   coloured by confidence (green clear / amber partly legible / red poor), next to the recognised text.
+  Typed documents instead show what each part is: paragraphs (blue), tables (purple), and pictures
+  (amber), boxed on the page for PDFs and laid out in order for Word, PowerPoint, and text files.
 - **API docs:** http://127.0.0.1:8000/docs
 
 If the server refuses to start with "database is out of date", delete `data/docblendai.db`
 and the contents of `data/chroma_db/` (local dev data), restart, and re-upload.
+
+## Running with Docker (for hosting)
+
+Needs [Docker Desktop](https://www.docker.com/products/docker-desktop/). With your key in `.env`:
+
+```bash
+docker compose up --build
+```
+
+Then open http://localhost:8000. The image includes Tesseract and the PaddleOCR handwriting models;
+documents, the database, and vectors are kept in the `docblendai-data` volume (mounted at `/data`), so
+they survive restarts. Without compose:
+
+```bash
+docker build -t docblendai .
+docker run -p 8000:8000 -e GEMINI_API_KEY=your-key -v docblendai-data:/data docblendai
+```
+
+- The optional TrOCR engine (`HTR_ENGINE=trocr`) needs PyTorch, which is left out to keep the image
+  small; build with `--build-arg WITH_TROCR=true` to include it.
+- Hosts that choose the port (Render, Railway, Hugging Face Spaces) set `PORT`; the image listens on it
+  (default 8000). Set `GEMINI_API_KEY` as a secret in the host's settings, never in the image.
+- Without a persistent disk on the host, uploaded documents are lost when the container restarts.
 
 ## API
 
@@ -80,8 +105,9 @@ and the contents of `data/chroma_db/` (local dev data), restart, and re-upload.
 | POST | `/upload` | Upload a PDF, image, .docx, .pptx, or .txt (optional `format_hint`: typed / scanned / handwritten) |
 | GET | `/documents` | List uploaded documents (oldest first) |
 | DELETE | `/documents/{id}` | Remove a document (database, vector store, file, and page view) |
-| GET | `/documents/{id}/pages` | Page viewer data: recognised text, lines with boxes and confidence, image link |
+| GET | `/documents/{id}/pages` | Page viewer data: text, recognised lines (scans) or paragraphs/tables/pictures (typed), image link |
 | GET | `/documents/{id}/pages/{n}/image` | The page image recognition read |
+| GET | `/documents/{id}/pictures/{name}` | A picture found in a typed document |
 | POST | `/ask` | Ask a question → answer + reliability label. Optional `doc_ids` limits it to those documents; omit to search all |
 | GET | `/answer/{id}` | Fetch a stored answer |
 | GET | `/answer/{id}/sources` | Chunks behind an answer, with similarity, confidence, content type |
@@ -119,6 +145,7 @@ app/
 │   ├── paddle_extractor.py  Module 2: handwriting via PaddleOCR PP-OCRv6 (default engine)
 │   ├── htr_extractor.py     Module 2: TrOCR HTR (optional engine), ruled-notebook segmentation
 │   ├── page_store.py        Modules 1-2: page images + line boxes for the viewer
+│   ├── typed_layout.py      Module 4: paragraphs / tables / pictures of typed files, for the viewer
 │   ├── confidence_capture.py Module 3: raw -> calibrated confidence
 │   ├── content_type.py      Module 4: table / paragraph / image labeling
 │   ├── chunker.py           Modules 4/5: split text into chunks
