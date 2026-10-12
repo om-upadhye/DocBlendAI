@@ -1,4 +1,4 @@
-# DocBlendAI 1.1.0 - Python 3.11 (tested on 3.11.9, Windows 11)
+# DocBlendAI 1.2.0 - Python 3.11 (tested on 3.11.9, Windows 11)
 # Install:  python -m pip install -r requirements.txt
 # Exact versions pinned so every team machine gets the same, tested set.
 # Non-Python requirements (Tesseract OCR, the TrOCR model) are covered in README.md.

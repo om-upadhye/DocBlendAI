@@ -71,7 +71,7 @@ Rules:
 | 1. Document Upload | `app/routers/upload.py` |
 | 2. Format Detection & Text Extraction | `app/modules/format_detection.py`, `file_types.py`, `text_parser.py` (PDF/Word/PowerPoint/text), `ocr_extractor.py`, `htr_extractor.py`, `pdf_render.py` (PDF pages and images) |
 | 3. Confidence Capture & Calibration | `app/modules/confidence_capture.py`, `data/calibration.json` |
-| 4. Content-Type Identification | `app/modules/content_type.py` |
+| 4. Content-Type Identification | `app/modules/content_type.py`, `typed_layout.py` (viewer blocks for typed files) |
 | 5. Confidence-Aware Retrieval | `app/modules/chunker.py`, `embedder.py`, `vector_store.py`, `retrieval.py` |
 | 6. Reliability Tier Classification | `app/modules/reliability.py` |
 | 7. LLM Answer Generation | `app/modules/llm_answer.py`, `app/routers/query.py` |

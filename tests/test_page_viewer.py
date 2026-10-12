@@ -1,4 +1,4 @@
-"""PaddleOCR handwriting engine and the document page viewer.
+"""PaddleOCR handwriting engine and the document page viewer (lines for scans, blocks for typed files).
 
 The real PaddleOCR engine is never run (conftest refuses it); a fake RapidOCR
 result stands in, so these tests stay offline and fast.
@@ -6,13 +6,18 @@ result stands in, so these tests stay offline and fast.
 
 from types import SimpleNamespace
 
+import json
+
 import numpy as np
 import pytest
 from docx import Document as new_docx
+from docx.shared import Inches as DocxInches
 from PIL import Image
+from pptx import Presentation
+from pptx.util import Inches
 
 from app.config import settings
-from app.modules import format_detection, htr_extractor, ocr_extractor, paddle_extractor, page_store
+from app.modules import format_detection, htr_extractor, ocr_extractor, paddle_extractor, page_store, typed_layout
 from tests.conftest import TYPED_PAGE
 
 # --- PaddleOCR engine ----------------------------------------------------------------------
@@ -124,26 +129,119 @@ def test_handwritten_page_view(client, pdf_file, fake_ocr, fake_htr) -> None:
     assert page["image_url"]
 
 
-def test_typed_pdf_page_view_has_image_but_no_boxes(client, pdf_file) -> None:
+def test_typed_pdf_page_view_has_image_and_boxed_blocks(client, pdf_file) -> None:
     doc = _upload(client, pdf_file([TYPED_PAGE]))
 
     [page] = client.get(f"/documents/{doc['doc_id']}/pages").json()
 
     assert "Retrieval-Augmented Generation" in page["text"]
     assert page["lines"] == []
+    [block] = page["blocks"]
+    assert block["type"] == "paragraph" and "Retrieval-Augmented Generation" in block["text"]
+    x0, y0, x1, y1 = block["box"]
+    assert 0 < x0 < x1 < 1 and 0 < y0 < y1 < 0.2  # near the top of the page
     assert client.get(page["image_url"]).status_code == 200
 
 
-def test_word_page_view_is_text_only(client, tmp_path) -> None:
+def _picture(path) -> str:
+    Image.new("RGB", (120, 80), "steelblue").save(path)
+    return str(path)
+
+
+def test_word_page_view_lists_paragraphs_tables_and_pictures(client, tmp_path) -> None:
     path = tmp_path / "notes.docx"
     d = new_docx()
+    d.add_heading("Shortest paths", level=1)
     d.add_paragraph("Dijkstra's algorithm finds shortest paths.")
+    d.add_paragraph("Uses a priority queue", style="List Bullet")
+    d.add_paragraph("Needs non-negative weights", style="List Bullet")
+    table = d.add_table(rows=2, cols=2)
+    for row, cells in zip(table.rows, [("Algorithm", "Time"), ("Dijkstra", "O(E log V)")]):
+        row.cells[0].text, row.cells[1].text = cells
+    d.add_picture(_picture(tmp_path / "graph.png"), width=DocxInches(2))
     d.save(path)
     doc = _upload(client, path)
 
     [page] = client.get(f"/documents/{doc['doc_id']}/pages").json()
 
-    assert page["image_url"] is None and "Dijkstra" in page["text"]
+    assert page["image_url"] is None
+    blocks = page["blocks"]
+    assert [b["type"] for b in blocks] == ["paragraph", "paragraph", "paragraph", "table", "image"]
+    assert blocks[2]["text"] == "Uses a priority queue\nNeeds non-negative weights"  # one list, one block
+    assert blocks[3]["rows"] == [["Algorithm", "Time"], ["Dijkstra", "O(E log V)"]]
+    assert all(b["box"] is None for b in blocks)  # Word has no fixed pages to draw boxes on
+    picture = client.get(blocks[4]["picture_url"])
+    assert picture.status_code == 200 and picture.headers["content-type"] == "image/png"
+
+
+def test_powerpoint_blocks_follow_each_slide(client, tmp_path) -> None:
+    path = tmp_path / "ports.pptx"
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[5])  # title only
+    slide.shapes.title.text = "Well-known ports"
+    table = slide.shapes.add_table(2, 2, Inches(1), Inches(2), Inches(4), Inches(1)).table
+    for r, (proto, port) in enumerate([("Protocol", "Port"), ("HTTPS", "443")]):
+        table.cell(r, 0).text, table.cell(r, 1).text = proto, port
+    slide.shapes.add_picture(_picture(tmp_path / "net.png"), Inches(1), Inches(4))
+    deck.slides.add_slide(deck.slide_layouts[5]).shapes.title.text = "Summary"
+    deck.save(path)
+    doc = _upload(client, path)
+
+    pages = client.get(f"/documents/{doc['doc_id']}/pages").json()
+
+    assert [[b["type"] for b in p["blocks"]] for p in pages] == [["paragraph", "table", "image"], ["paragraph"]]
+    assert pages[0]["blocks"][2]["picture_url"]
+
+
+def test_text_file_blocks_split_on_blank_lines(client, tmp_path) -> None:
+    path = tmp_path / "marks.txt"
+    path.write_text(
+        "Internal assessment marks for the DBMS unit test.\n\n"
+        "Name    Test 1    Test 2\nAsha    18    19\nRavi    15    17\n",
+        encoding="utf-8",
+    )
+    doc = _upload(client, path)
+
+    [page] = client.get(f"/documents/{doc['doc_id']}/pages").json()
+
+    assert [b["type"] for b in page["blocks"]] == ["paragraph", "table"]
+    assert page["blocks"][1]["rows"][1] == ["Asha", "18", "19"]
+
+
+def test_typed_document_saved_before_blocks_gets_them_on_view(client, pdf_file) -> None:
+    doc = _upload(client, pdf_file([TYPED_PAGE]))
+    layout = page_store.pages_dir(doc["doc_id"]) / "layout.json"
+    old = [{k: v for k, v in p.items() if k != "blocks"} for p in json.loads(layout.read_text(encoding="utf-8"))]
+    layout.write_text(json.dumps(old), encoding="utf-8")  # as saved by version 1.1.0
+
+    [page] = client.get(f"/documents/{doc['doc_id']}/pages").json()
+
+    assert [b["type"] for b in page["blocks"]] == ["paragraph"]
+    assert "blocks" in json.loads(layout.read_text(encoding="utf-8"))[0]  # kept for next time
+
+
+def test_picture_endpoint_serves_only_saved_pictures(client, pdf_file) -> None:
+    doc = _upload(client, pdf_file([TYPED_PAGE]))
+
+    for name in ["pic_1.png", "layout.json", "..%2F..%2Fdocblendai.db", "page_1.jpg"]:
+        assert client.get(f"/documents/{doc['doc_id']}/pictures/{name}").status_code == 404
+
+
+def _line(top, bottom, x0=72, x1=540, size=11):
+    return {"text": f"line at {top}", "x0": x0, "x1": x1, "top": top, "bottom": bottom, "chars": [{"text": "a", "size": size}]}
+
+
+def test_pdf_lines_group_into_paragraphs_by_spacing_size_and_column() -> None:
+    lines = [
+        _line(60, 76, size=16),  # heading: bigger font
+        _line(90, 101), _line(105, 116), _line(120, 131),  # paragraph 1, usual 4 pt gap
+        _line(140, 151), _line(155, 166),  # paragraph 2 after a 9 pt gap
+        _line(90, 101, x0=320, x1=560),  # second column, back at the top
+    ]
+
+    groups = typed_layout._group_lines(lines)
+
+    assert [len(g) for g in groups] == [1, 3, 2, 1]
 
 
 def test_delete_removes_page_view(client, pdf_file, fake_ocr) -> None:
