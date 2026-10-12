@@ -11,7 +11,7 @@ phone photos are turned upright automatically), Word (.docx, including tables),
 PowerPoint (.pptx, one page per slide), and plain text (.txt). See `PROJECT_NOTES.md` for full
 project context.
 
-**Contributors:** [Om Upadhye](https://github.com/om-upadhye) (original development) · [Gaurav Kalamkhede](https://github.com/gauravkal006)
+**Contributors:** Darshana Rekhate · [Gaurav Kalamkhede](https://github.com/gauravkal006) · [Om Upadhye](https://github.com/om-upadhye)
 
 **Team members:** start with [CONTRIBUTING.md](CONTRIBUTING.md) for the Git workflow and troubleshooting.
 
