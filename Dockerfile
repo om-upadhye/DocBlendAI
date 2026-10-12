@@ -40,10 +40,12 @@ COPY data/calibration.json ./data/calibration.json
 
 # Runtime data (database, vectors, uploads) lives in /data: mount a volume there
 # so documents survive container restarts. Calibration stays in the image.
+# On Render (render.yaml) the platform sets PORT, and /data is temporary.
 ENV DATABASE_URL=sqlite:////data/docblendai.db \
     CHROMA_DIR=/data/chroma_db \
     UPLOAD_DIR=/data/uploads \
     HF_HOME=/data/hf_cache \
+    ANONYMIZED_TELEMETRY=False \
     PORT=8000
 
 # Run as an unprivileged user (uid 1000, which Hugging Face Spaces also expects).

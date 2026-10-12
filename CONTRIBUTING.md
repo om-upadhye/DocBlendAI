@@ -1,6 +1,6 @@
 # Contributing to DocBlendAI
 
-Team guide for Group C4. Read `README.md` for what the project does and `CLAUDE.md`
+Team guide for Group C4. Read `README.md` for what the project does and `PROJECT_NOTES.md`
 for the architecture decisions (they are locked; discuss before changing them).
 
 ## First-time setup (Windows)
@@ -61,7 +61,7 @@ When you add or upgrade a package, pin the exact version in `requirements.txt` a
 Rules:
 - **Never commit directly to `main`.**
 - **Never commit secrets** (`.env`, API keys) or local data (`data/uploads/`, `data/chroma_db/`, `data/*.db` are git-ignored).
-- Keep module names and boundaries as listed in `CLAUDE.md` (the 7 synopsis modules).
+- Keep module names and boundaries as listed in `PROJECT_NOTES.md` (the 7 synopsis modules).
 - `app/models/schemas.py` must match the synopsis entity table exactly.
 
 ## Where things live

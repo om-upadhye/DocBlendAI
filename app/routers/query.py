@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import Field
 from sqlalchemy.orm import Session
 
+from app import site
 from app.config import settings
 from app.db.database import get_db
 from app.db.models import AnswerORM, DocumentORM, QueryORM, RetrievalResultORM
@@ -38,15 +39,23 @@ class AskRequest(Query):
 
 # Plain `def`: embedding and generation are blocking network calls, so FastAPI runs this in its threadpool.
 @router.post("/ask", response_model=Answer)
-def ask(request: AskRequest, db: Session = Depends(get_db)) -> Answer:
+def ask(
+    request: AskRequest, db: Session = Depends(get_db), session_id: str | None = Depends(site.session_header)
+) -> Answer:
     query = Query(**request.model_dump(exclude={"doc_ids"}))
+    visible = site.visible_doc_ids(db, session_id)
+    if visible is not None:  # public demo: only this session's own documents
+        if request.doc_ids is None:
+            request.doc_ids = sorted(visible)
+        if not request.doc_ids:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Upload a document first")
     if db.get(QueryORM, query.query_id) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, f"query_id {query.query_id!r} already exists")
     if request.doc_ids is not None:
         if not request.doc_ids:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Select at least one document to ask about")
         known = {row.doc_id for row in db.query(DocumentORM.doc_id).filter(DocumentORM.doc_id.in_(request.doc_ids))}
-        unknown = sorted(set(request.doc_ids) - known)
+        unknown = sorted(set(request.doc_ids) - (known if visible is None else known & visible))
         if unknown:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Unknown document(s): {', '.join(unknown)}")
 
@@ -63,6 +72,7 @@ def ask(request: AskRequest, db: Session = Depends(get_db)) -> Answer:
     db.add(AnswerORM(**answer.model_dump(), query_id=query.query_id))
     db.add_all(RetrievalResultORM(**r.model_dump(), query_id=query.query_id) for r in results)
     db.commit()
+    site.count_question(db)
 
     logger.info("Answered %s: %s from %d chunks", query.query_id, answer.reliability_label.value, len(results))
     return answer

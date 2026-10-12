@@ -5,8 +5,10 @@ Answer, and RetrievalResult. RecognizedChunk is not stored here: it lives in
 ChromaDB (Module 5, vector_store.py).
 """
 
+from datetime import date
+
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -51,3 +53,40 @@ class RetrievalResultORM(Base):
     similarity: Mapped[float] = mapped_column(Float)
     confidence: Mapped[float] = mapped_column(Float)
     combined_score: Mapped[float] = mapped_column(Float)
+
+
+# --- Website support tables (not synopsis entities): demo sessions and usage counters. ---
+
+
+class SessionORM(Base):
+    """One browser tab on the hosted demo; its documents are deleted when it goes quiet."""
+
+    __tablename__ = "sessions"
+
+    session_id: Mapped[str] = mapped_column(String, primary_key=True)
+    last_seen: Mapped[float] = mapped_column(Float, index=True)  # Unix time of the last heartbeat
+
+
+class SessionDocumentORM(Base):
+    """Which session uploaded a document (kept apart so the Document entity matches the synopsis)."""
+
+    __tablename__ = "session_documents"
+
+    doc_id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String, index=True)
+
+
+class VisitORM(Base):
+    """A visitor (one browser) seen on a given day; the count per day is the visitor count."""
+
+    __tablename__ = "visits"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    visitor_id: Mapped[str] = mapped_column(String, primary_key=True)
+
+
+class DailyQuestionsORM(Base):
+    __tablename__ = "daily_questions"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)

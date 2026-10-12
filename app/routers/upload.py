@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app import site
 from app.config import settings
 from app.db.database import get_db
 from app.db.models import DocumentORM
@@ -56,6 +57,7 @@ def upload_document(
         ),
     ),
     db: Session = Depends(get_db),
+    session_id: str | None = Depends(site.session_header),
 ) -> Document:
     filename = file.filename or ""
     if file_types.kind_of(filename) is None:
@@ -63,6 +65,10 @@ def upload_document(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             f"Unsupported file type. Upload one of: {file_types.supported_extensions()}",
         )
+    if settings.max_upload_mb and (file.size or 0) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, f"File is too large (limit {settings.max_upload_mb} MB)")
+    if session_id:
+        site.touch(db, session_id)  # a long OCR run must not let the session expire under it
 
     doc_id = uuid.uuid4().hex
     # Keep the original name in the stored path so the UI can show it (the Document entity has no name field).
@@ -74,6 +80,7 @@ def upload_document(
 
     try:
         document = _ingest(doc_id, path, format_hint, db)
+        site.claim(db, session_id, doc_id)
     except Exception:
         # Any failure (rejection, service error, or bug) leaves no stray upload behind.
         path.unlink(missing_ok=True)
@@ -83,26 +90,56 @@ def upload_document(
 
 
 @router.get("/documents", response_model=list[Document])
-def list_documents(db: Session = Depends(get_db)) -> list[Document]:
-    """All documents, oldest upload first (SQLite rowid follows insertion order)."""
-    return [Document.model_validate(row) for row in db.query(DocumentORM).order_by(text("rowid")).all()]
+def list_documents(
+    db: Session = Depends(get_db), session_id: str | None = Depends(site.session_header)
+) -> list[Document]:
+    """All documents (on the public demo: this session's), oldest upload first (SQLite rowid follows insertion order)."""
+    rows = db.query(DocumentORM)
+    visible = site.visible_doc_ids(db, session_id)
+    if visible is not None:
+        rows = rows.filter(DocumentORM.doc_id.in_(visible))
+    return [Document.model_validate(row) for row in rows.order_by(text("rowid")).all()]
 
 
 @router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_document(doc_id: str, db: Session = Depends(get_db)) -> None:
+def delete_document(
+    doc_id: str, db: Session = Depends(get_db), session_id: str | None = Depends(site.session_header)
+) -> None:
     """Remove a document everywhere: its row, its chunks in ChromaDB, and the uploaded file.
 
     Past answers stay in the history; their sources simply no longer list this document.
     """
     row = db.get(DocumentORM, doc_id)
-    if row is None:
+    visible = site.visible_doc_ids(db, session_id)
+    if row is None or (visible is not None and doc_id not in visible):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
-    vector_store.delete_document(doc_id)
-    Path(row.file_path).unlink(missing_ok=True)
-    page_store.delete(doc_id)
-    db.delete(row)
-    db.commit()
+    site.remove_document(db, row)
     logger.info("Deleted document %s", doc_id)
+
+
+# Browsers can show these inline; Word/PowerPoint files are offered as downloads.
+_MEDIA_TYPES = {
+    ".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".tif": "image/tiff", ".tiff": "image/tiff", ".bmp": "image/bmp", ".webp": "image/webp",
+    ".txt": "text/plain; charset=utf-8",
+}
+
+
+@router.get("/documents/{doc_id}/file", response_class=FileResponse)
+def document_file(doc_id: str, db: Session = Depends(get_db)) -> FileResponse:
+    """The original upload, for the preview next to the chat (the random doc_id acts as the access key)."""
+    row = db.get(DocumentORM, doc_id)
+    if row is None or not Path(row.file_path).is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    path = Path(row.file_path)
+    media_type = _MEDIA_TYPES.get(path.suffix.lower())
+    return FileResponse(
+        path,
+        media_type=media_type or "application/octet-stream",
+        filename=path.name.removeprefix(f"{doc_id}_"),
+        content_disposition_type="inline" if media_type else "attachment",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 class LineView(BaseModel):
@@ -192,6 +229,10 @@ def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, unreadable)
     except (ocr_extractor.OCRUnavailableError, htr_extractor.HTRUnavailableError) as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
+    if settings.max_pages and pages > settings.max_pages:
+        raise HTTPException(
+            status.HTTP_413_CONTENT_TOO_LARGE, f"Too many pages ({pages}); this server accepts up to {settings.max_pages}"
+        )
 
     document = Document(doc_id=doc_id, file_path=str(path), format_type=format_type, page_count=pages)
     layout: list[dict] = []  # page images + line boxes, filled by OCR/HTR, for the viewer

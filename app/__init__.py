@@ -1,3 +1,3 @@
-"""DocBlendAI application package (FastAPI monolith, see CLAUDE.md)."""
+"""DocBlendAI application package (FastAPI monolith, see PROJECT_NOTES.md)."""
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"

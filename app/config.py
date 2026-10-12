@@ -49,5 +49,17 @@ class Settings(BaseSettings):
     chroma_dir: Path = DATA_DIR / "chroma_db"
     upload_dir: Path = DATA_DIR / "uploads"
 
+    # Public demo (hosted site, e.g. Render): each browser tab is a private session, sees only its
+    # own uploads, and they are deleted soon after the tab closes. Off for local/team use.
+    public_demo: bool = False
+    # A session with no heartbeat for this long is ended and its documents deleted.
+    session_ttl_seconds: int = 300
+    # After the tab signals it is closing: grace period before deleting (a page reload comes back sooner).
+    session_leave_grace_seconds: int = 20
+    max_upload_mb: int = 0  # 0 = no limit
+    max_pages: int = 0  # 0 = no limit; OCR/HTR of long scans is slow on small servers
+    # Visitor/question counters reset at midnight in this UTC offset (5.5 = India).
+    stats_utc_offset_hours: float = 5.5
+
 
 settings = Settings()

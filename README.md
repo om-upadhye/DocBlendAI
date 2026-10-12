@@ -1,6 +1,6 @@
 # DocBlendAI
 
-**Version 1.2.0** · Final-year B.Tech project (Group C4), Dept. of CSE, PRMIT&R Badnera
+**Version 1.3.0** · Final-year B.Tech project (Group C4), Dept. of CSE, PRMIT&R Badnera
 
 Confidence-aware multi-format document QA assistant: upload typed, scanned, or
 handwritten academic documents and ask questions. Every answer carries a reliability
@@ -8,8 +8,10 @@ tier (Certain / Moderate / Uncertain / Unreadable).
 
 **Supported uploads:** PDF, images (JPG, PNG, TIFF incl. multi-page, BMP, WEBP;
 phone photos are turned upright automatically), Word (.docx, including tables),
-PowerPoint (.pptx, one page per slide), and plain text (.txt). See `CLAUDE.md` for full
+PowerPoint (.pptx, one page per slide), and plain text (.txt). See `PROJECT_NOTES.md` for full
 project context.
+
+**Contributors:** Darshana Rekhate · [Gaurav Kalamkhede](https://github.com/gauravkal006) · [Om Upadhye](https://github.com/om-upadhye)
 
 **Team members:** start with [CONTRIBUTING.md](CONTRIBUTING.md) for the Git workflow and troubleshooting.
 
@@ -75,6 +77,8 @@ venv/Scripts/python -m uvicorn app.main:app --reload
 If the server refuses to start with "database is out of date", delete `data/docblendai.db`
 and the contents of `data/chroma_db/` (local dev data), restart, and re-upload.
 
+**Hosting on Render:** see [DEPLOY.md](DEPLOY.md) (one-click Blueprint in `render.yaml`).
+
 ## Running with Docker (for hosting)
 
 Needs [Docker Desktop](https://www.docker.com/products/docker-desktop/). With your key in `.env`:
@@ -105,12 +109,16 @@ docker run -p 8000:8000 -e GEMINI_API_KEY=your-key -v docblendai-data:/data docb
 | POST | `/upload` | Upload a PDF, image, .docx, .pptx, or .txt (optional `format_hint`: typed / scanned / handwritten) |
 | GET | `/documents` | List uploaded documents (oldest first) |
 | DELETE | `/documents/{id}` | Remove a document (database, vector store, file, and page view) |
+| GET | `/documents/{id}/file` | The original upload (shown in the preview panel) |
 | GET | `/documents/{id}/pages` | Page viewer data: text, recognised lines (scans) or paragraphs/tables/pictures (typed), image link |
 | GET | `/documents/{id}/pages/{n}/image` | The page image recognition read |
 | GET | `/documents/{id}/pictures/{name}` | A picture found in a typed document |
 | POST | `/ask` | Ask a question → answer + reliability label. Optional `doc_ids` limits it to those documents; omit to search all |
 | GET | `/answer/{id}` | Fetch a stored answer |
 | GET | `/answer/{id}/sources` | Chunks behind an answer, with similarity, confidence, content type |
+| POST | `/session/heartbeat` | Keeps a browser tab's documents alive and counts the visitor |
+| POST | `/session/{id}/leave` | Tab closing: its documents are deleted after a short grace period (public demo) |
+| GET | `/stats` | Visitors and questions today and in total |
 
 ## Testing and evaluation
 
@@ -135,7 +143,8 @@ app/
 ├── static/index.html        Demo UI
 ├── routers/
 │   ├── upload.py            Module 1: POST /upload, GET/DELETE /documents
-│   └── query.py             POST /ask, GET /answer/{id}[/sources] (Modules 5-7)
+│   ├── query.py             POST /ask, GET /answer/{id}[/sources] (Modules 5-7)
+│   └── site.py              Session heartbeats and /stats (website support)
 ├── modules/
 │   ├── format_detection.py  Module 2: detect format, route to an extractor
 │   ├── text_parser.py       Module 2: direct parsing of PDF / Word / PowerPoint / text
