@@ -79,6 +79,8 @@ and the contents of `data/chroma_db/` (local dev data), restart, and re-upload.
 
 **Hosting on Render:** see [DEPLOY.md](DEPLOY.md) (one-click Blueprint in `render.yaml`).
 
+**Android app:** a React Native app for the same server is in [mobile/](mobile/README.md) (shareable APK).
+
 ## Running with Docker (for hosting)
 
 Needs [Docker Desktop](https://www.docker.com/products/docker-desktop/). With your key in `.env`:
