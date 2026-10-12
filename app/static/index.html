@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
 <title>DocBlendAI</title>
 <meta name="color-scheme" content="light">
 <style>
@@ -44,8 +45,6 @@
          grid-template-columns: 340px minmax(0, 1.1fr) minmax(0, 1fr); grid-template-areas: "docs preview chat"; }
   #docs-card { grid-area: docs; } #preview-card { grid-area: preview; } #chat-card { grid-area: chat; }
   @media (max-width: 1240px) { main { grid-template-columns: 340px minmax(0, 1fr); grid-template-areas: "docs chat" "preview preview"; } }
-  @media (max-width: 920px) { main { grid-template-columns: 1fr; grid-template-areas: "docs" "preview" "chat"; padding: 14px 16px 28px; }
-                              .top { padding: 12px 16px; flex-wrap: wrap; } .pill { display: none; } }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
   .card-head { padding: 16px 18px 6px; }
   .card-head h2 { margin: 0; font-size: 16px; }
@@ -229,7 +228,71 @@
   .privacy { margin: 10px 18px 0; font-size: 12px; color: #13805f; background: var(--mint-soft); border-radius: 10px; padding: 8px 12px; }
   .dmeta { cursor: pointer; }
   .doc.viewing .dname { color: var(--accent); }
-  @media (max-width: 920px) { .p-body { height: 60vh; } }
+  /* ---------- phones, small tablets, landscape phones: one screen at a time + bottom tabs ---------- */
+  .tabbar, .phone-only { display: none; }
+  @media (max-width: 920px), (max-height: 520px) and (pointer: coarse) {
+    html, body { height: 100%; }
+    body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+    header { flex: none; }
+    .top { padding: 8px 12px; padding-top: max(8px, env(safe-area-inset-top)); gap: 10px; flex-wrap: wrap; }
+    .logo { width: 34px; height: 34px; border-radius: 10px; }
+    .top h1 { font-size: 17px; }
+    .top p, .pill, .stat .t { display: none; }
+    .top .grow { flex: 0 0 auto; }
+    .stats { margin-left: auto; }
+    .stats { gap: 4px; }
+    .stat { font-size: 11px; padding: 3px 8px; }
+    main { flex: 1; min-height: 0; display: block; max-width: none; padding: 10px 10px 0;
+           padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+    main > .card { display: none; height: 100%; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+    body[data-view="docs"] #docs-card, body[data-view="preview"] #preview-card, body[data-view="chat"] #chat-card { display: flex; flex-direction: column; }
+    #docs-card { overflow: auto; overscroll-behavior: contain; }
+    ul.docs { max-height: none; overflow: visible; }
+    .card-head { padding: 14px 16px 4px; }
+    .drop { margin: 10px 14px 0; padding: 18px 12px; }
+    .hintrow, .privacy { margin-left: 14px; margin-right: 14px; }
+    .progress { margin: 10px 14px 0; }
+    .docs-head { margin: 16px 14px 8px; }
+    ul.docs { padding: 0 10px 14px; }
+    .chat-card { min-height: 0; }
+    .chat { max-height: none; min-height: 0; padding: 12px; overscroll-behavior: contain; }
+    .msg { max-width: 100%; }
+    .scope { margin: 4px 14px 0; }
+    .suggest { flex-wrap: nowrap; overflow-x: auto; padding: 0 12px 8px; scrollbar-width: none; }
+    .suggest::-webkit-scrollbar { display: none; }
+    .suggest button { flex: none; }
+    .note { display: none; }
+    form.composer { padding: 8px 10px; gap: 8px; }
+    form.composer textarea { font-size: 16px; min-height: 44px; }  /* 16px stops iOS zooming in on focus */
+    .send { height: 44px; padding: 0 14px; }
+    .p-head { padding: 12px 14px 8px; gap: 8px; }
+    .p-head h2 { flex-basis: 100%; }
+    #preview-card .p-body { flex: 1; height: auto; min-height: 0; margin: 0 8px 8px; }
+    .phone-only { display: inline-block; }
+    .tabbar { display: flex; flex: none; gap: 4px; background: var(--panel); border-top: 1px solid var(--line);
+              padding: 6px 8px; padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+    .tabbar button { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+                     gap: 2px; min-height: 52px; border: 0; border-radius: 12px; background: transparent; color: var(--muted);
+                     font-size: 12px; font-weight: 600; }
+    .tabbar button[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
+    .tabbar .badge { position: absolute; top: 4px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px;
+                     border-radius: 9px; background: var(--accent); color: #fff; font-size: 11px; line-height: 18px; }
+    .tabbar .badge:empty { display: none; }
+    /* page viewer: full screen */
+    dialog#viewer { width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; margin: 0; border-radius: 0; }
+    .v-head { padding: 8px 12px; padding-top: max(8px, env(safe-area-inset-top)); gap: 8px; }
+    .v-head h3 { flex-basis: calc(100% - 90px); }
+    .legend { order: 3; flex-basis: 100%; font-size: 11px; gap: 10px; flex-wrap: wrap; }
+    .v-page { padding: 10px; }
+    .v-paper { padding: 16px; }
+  }
+  @media (pointer: coarse) {
+    .iconbtn { width: 42px; height: 42px; }
+    .askon { min-height: 36px; }
+    .askon input { width: 20px; height: 20px; }
+    .pager button, .v-close { min-height: 40px; min-width: 44px; }
+    .p-act { padding: 8px 14px; }
+  }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
@@ -245,8 +308,8 @@
     </div>
     <span class="pill">PDF · photos · Word · PowerPoint · text</span>
     <div class="stats" id="stats" aria-live="polite" hidden>
-      <span class="stat" id="stat-visitors"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a7 7 0 0 1 14 0v1"/><path d="M17 4a4 4 0 0 1 0 8M22 21v-1a7 7 0 0 0-4-6.3"/></svg><span><b>0</b><span> visitors today</span></span></span>
-      <span class="stat" id="stat-questions"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/></svg><span><b>0</b><span> questions today</span></span></span>
+      <span class="stat" id="stat-visitors"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a7 7 0 0 1 14 0v1"/><path d="M17 4a4 4 0 0 1 0 8M22 21v-1a7 7 0 0 0-4-6.3"/></svg><span><b>0</b><span> visitors</span><span class="t"> today</span></span></span>
+      <span class="stat" id="stat-questions"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/></svg><span><b>0</b><span> questions</span><span class="t"> today</span></span></span>
     </div>
   </div>
 </header>
@@ -291,6 +354,7 @@
       <h2 id="p-title">Preview</h2>
       <button type="button" class="p-act" id="p-read" hidden>What I read</button>
       <a class="p-act" id="p-open" target="_blank" rel="noopener" hidden>Open ↗</a>
+      <button type="button" class="p-act phone-only" id="p-ask">Ask about it →</button>
     </div>
     <div class="p-body" id="p-body">
       <div class="p-empty">Your document will show here while you ask questions about it.</div>
@@ -307,7 +371,7 @@
       <div class="welcome" id="welcome">
         <svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="36" r="34" fill="#eaeefe"/><rect x="20" y="22" width="32" height="24" rx="8" fill="#4f6ef7"/><circle cx="30" cy="34" r="3" fill="#fff"/><circle cx="42" cy="34" r="3" fill="#fff"/><path d="M28 50h16" stroke="#7c93ff" stroke-width="3" stroke-linecap="round"/><path d="M36 22v-6" stroke="#4f6ef7" stroke-width="3" stroke-linecap="round"/><circle cx="36" cy="14" r="3" fill="#7c93ff"/></svg>
         <h3>Hi! I'm your DocBlend assistant 👋</h3>
-        <p>Upload a document on the left, then ask me anything about it. With every answer I'll tell you how sure I am and show where I found it.</p>
+        <p>Upload a document, then ask me anything about it. With every answer I'll tell you how sure I am and show where I found it.</p>
       </div>
     </div>
     <div class="suggest" id="suggest"></div>
@@ -322,6 +386,21 @@
     <p class="note">Press Enter to ask · Shift+Enter for a new line</p>
   </section>
 </main>
+
+<nav class="tabbar" aria-label="Sections">
+  <button type="button" data-view="docs">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+    Documents<b class="badge" id="tab-count"></b>
+  </button>
+  <button type="button" data-view="preview">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+    Preview
+  </button>
+  <button type="button" data-view="chat">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/></svg>
+    Ask
+  </button>
+</nav>
 
 <!-- ======== page viewer ======== -->
 <dialog id="viewer" aria-labelledby="v-title">
@@ -401,8 +480,8 @@ async function loadStats() {
     const set = (id, n, word, total) => {
       const chip = document.getElementById(id);
       chip.querySelector("b").textContent = n;
-      chip.querySelector("b + span").textContent = ` ${word}${n === 1 ? "" : "s"} today`;
-      chip.title = `${total} in total`;
+      chip.querySelector("b + span").textContent = ` ${word}${n === 1 ? "" : "s"}`;
+      chip.title = `${n} today, ${total} in total`;
     };
     set("stat-visitors", s.visitors_today, "visitor", s.visitors_total);
     set("stat-questions", s.questions_today, "question", s.questions_total);
@@ -475,6 +554,7 @@ async function loadDocs(newDocId) {
   saveSelection();
   const want = newDocId || (ids.has(preview.id) ? preview.id : docs.length ? docs[docs.length - 1].doc_id : null);
   document.getElementById("doc-count").textContent = docs.length ? `${docs.length} document${docs.length > 1 ? "s" : ""}` : "";
+  document.getElementById("tab-count").textContent = docs.length || "";
 
   list.replaceChildren();
   if (!docs.length) {
@@ -507,7 +587,7 @@ async function loadDocs(newDocId) {
           `${d.page_count} page${d.page_count > 1 ? "s" : ""}`)),
       el("div", { class: "dacts" }, view, del),
       el("label", { class: "askon" }, box, "Ask about this"));
-    item.querySelector(".dmeta").addEventListener("click", () => showPreview(d));
+    item.querySelector(".dmeta").addEventListener("click", () => { showPreview(d); if (phone.matches) setView("preview"); });
     list.append(item);
   }
   renderScope();
@@ -579,6 +659,21 @@ async function deleteDoc(id) {
   } catch (err) { alert(err.message); }
 }
 
+// ---------- small screens: one section at a time, switched with the bottom tabs ----------
+const phone = matchMedia("(max-width: 920px), (max-height: 520px) and (pointer: coarse)");
+function setView(view) {
+  document.body.dataset.view = view;
+  document.querySelectorAll(".tabbar button").forEach((b) => b.setAttribute("aria-current", b.dataset.view === view ? "page" : "false"));
+  if (view === "chat") { const c = document.getElementById("chat"); c.scrollTop = c.scrollHeight; }
+}
+document.querySelectorAll(".tabbar button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
+document.getElementById("p-ask").addEventListener("click", () => { setView("chat"); document.getElementById("question").focus(); });
+setView("docs");
+if (matchMedia("(pointer: coarse)").matches) {
+  document.querySelector("#drop strong").textContent = "Tap to add a file";
+  document.getElementById("drop-help").textContent = "PDF, photo of your notes, Word, PowerPoint or text.";
+}
+
 // ---------- uploads (several files, one after another) ----------
 const fileInput = document.getElementById("file");
 const drop = document.getElementById("drop");
@@ -595,7 +690,10 @@ async function uploadAll(files) {
     const id = await uploadOne(file);
     if (id) lastId = id;
   }
-  if (lastId) await loadDocs(lastId);
+  if (lastId) {
+    await loadDocs(lastId);
+    if (phone.matches) setView("preview");  // see the document, then tap "Ask about it"
+  }
 }
 
 async function uploadOne(file) {
@@ -765,7 +863,7 @@ function renderPage() {
   const side = el("div", { class: "v-side" });
   const list = el("ol", { class: "v-lines", "aria-label": "Lines I read" });
   if (page.lines.length) {
-    side.append(el("h4", {}, `What I read · ${page.lines.length} lines (hover to find them on the page)`), list);
+    side.append(el("h4", {}, `What I read · ${page.lines.length} lines (${touchScreen ? "tap" : "hover"} to find them on the page)`), list);
   } else {
     side.append(el("h4", {}, "Text on this page"), el("pre", { class: "v-text" }, page.text || "(no text)"));
   }
@@ -817,7 +915,7 @@ function renderBlocks(page) {
   body.style.gridTemplateColumns = "";
 
   const list = el("ol", { class: "v-lines", "aria-label": "Parts of this page" });
-  const side = el("div", { class: "v-side" }, el("h4", {}, `What I found · ${page.blocks.length} parts (hover to find them on the page)`), list);
+  const side = el("div", { class: "v-side" }, el("h4", {}, `What I found · ${page.blocks.length} parts (${touchScreen ? "tap" : "hover"} to find them on the page)`), list);
   if (!page.blocks.length) side.replaceChildren(el("h4", {}, "Text on this page"), el("pre", { class: "v-text" }, page.text || "(no text)"));
 
   const onImage = page.image_url && page.blocks.every((b) => b.box);
