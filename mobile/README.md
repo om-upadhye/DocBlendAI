@@ -19,6 +19,76 @@ The Gemini key stays on the server; the app contains no secrets.
 The header shows visitors and questions today (same counters as the website). Documents are
 private to the app session and the server deletes them a few minutes after the app is closed.
 
+## How the app works
+
+```mermaid
+flowchart TD
+    Start["App starts - App.tsx"] --> HB["heartbeat()<br/>POST /session/heartbeat<br/>(up to 90 s: the free server may be waking up)"]
+    HB -- ok --> Load["getStats() + listDocuments()<br/>GET /stats, GET /documents"]
+    HB -- "no answer" --> Retry["'Couldn't reach the server' + Retry button"]
+    Load --> Tabs["Bottom tabs: Documents / Preview / Ask"]
+
+    Tabs --> D["DocumentsScreen.tsx"]
+    D -- "Choose file<br/>(@react-native-documents/picker)" --> U["uploadDocument()<br/>POST /upload"]
+    D -- "Take photo<br/>(react-native-image-picker)" --> U
+    U --> P["PreviewScreen.tsx<br/>getPages() - GET /documents/{id}/pages<br/>page images: GET /documents/{id}/pages/{n}/image<br/>photos: GET /documents/{id}/file"]
+    P -- "Ask about it" --> A["AskScreen.tsx<br/>ask() - POST /ask<br/>then GET /answer/{id}/sources"]
+    D -- Remove --> Del["deleteDocument()<br/>DELETE /documents/{id}"]
+
+    Tabs -. "every ~75 s while open" .-> Beat["heartbeat() + getStats()"]
+    Tabs -. "app closed / in background" .-> Gone["heartbeats stop: the server deletes<br/>this session's documents after 5 minutes"]
+```
+
+| File | What it does |
+|---|---|
+| `App.tsx` | Header with counters, "connecting" banner, the three tabs, heartbeats, Android back button |
+| `src/api.ts` | Every call to the server (one function per endpoint), session and visitor ids |
+| `src/config.ts` | `SERVER_URL` and the `user_id` sent with questions |
+| `src/screens/DocumentsScreen.tsx` | File picker, camera, kind-of-writing chips, document list |
+| `src/screens/PreviewScreen.tsx` | Pages, and "What I read" with per-line confidence |
+| `src/screens/AskScreen.tsx` | Chat, reliability labels, suggestions, "Where I found this" |
+| `src/theme.ts` | Colours, reliability label wording, confidence colours |
+
+## APIs the app calls
+
+All calls go through `request()` in [src/api.ts](src/api.ts): it prefixes `SERVER_URL`, adds the
+`X-Session-Id` header, applies a timeout, and turns the server's `{"detail": "..."}` errors into a
+message the screens show. The full API (shared with the website) is described in the
+[main README](../README.md#8-api-reference-website-and-app).
+
+| Function in `src/api.ts` | Endpoint | Used by | Timeout |
+|---|---|---|---|
+| `heartbeat()` | `POST /session/heartbeat` `{session_id, visitor_id}` | `App.tsx` on start, every ~75 s, on returning to the app | 90 s first time, 30 s after |
+| `getStats()` | `GET /stats` | header counters | 60 s |
+| `listDocuments()` | `GET /documents` | Documents tab | 60 s |
+| `uploadDocument(file, hint)` | `POST /upload` (multipart `file`, `format_hint`) | Choose file / Take photo | 10 min (OCR of scans is slow) |
+| `deleteDocument(id)` | `DELETE /documents/{id}` | Remove button | 60 s |
+| `getPages(id)` | `GET /documents/{id}/pages` | Preview tab | 60 s |
+| `absoluteUrl(image_url)` | `GET /documents/{id}/pages/{n}/image`, `GET /documents/{id}/file` | `<Image>` in Preview | – |
+| `ask(question, docIds)` | `POST /ask`, then `GET /answer/{id}/sources` | Ask tab | 2 min |
+
+Examples from the code:
+
+```ts
+// Upload a picked file or a camera photo (React Native sends {uri, name, type} as the file part)
+const form = new FormData();
+form.append('file', {uri: file.uri, name: file.name, type: file.type} as any);
+if (formatHint) form.append('format_hint', formatHint); // 'typed' | 'scanned' | 'handwritten'
+const doc = await request<Doc>('/upload', {method: 'POST', body: form}, 10 * 60000);
+
+// Ask about the ticked documents
+const answer = await request<Answer>('/ask', json({
+  query_id: uuid(), question_text: question, user_id: 'android-app', doc_ids: docIds,
+}));
+const sources = await request<Source[]>(`/answer/${answer.answer_id}/sources`);
+// answer.reliability_label is 'Certain' | 'Moderate' | 'Uncertain' | 'Unreadable'
+```
+
+**Sessions:** `SESSION_ID` is a new random id each time the app starts, so a new launch starts
+with an empty library. `visitorId` is kept in `AsyncStorage`, so the visitor counter counts a phone
+once per day. **Permissions:** only `INTERNET`. The camera opens Android's own camera app, so the
+app needs no camera or storage permission.
+
 ## Installing the APK on a phone
 
 1. Send `DocBlendAI.apk` over WhatsApp, Drive, email, or USB.
