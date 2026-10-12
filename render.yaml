@@ -1,0 +1,25 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo. See DEPLOY.md.
+# Builds the Dockerfile (includes Tesseract + the handwriting models; no PyTorch).
+services:
+  - type: web
+    name: docblendai
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free            # 512 MB RAM; switch to "standard" (2 GB) if handwriting uploads run out of memory
+    region: singapore     # closest Render region to India
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false       # Render asks for it on first deploy; never commit it
+      - key: PUBLIC_DEMO
+        value: "true"     # private per-tab documents, deleted when the visitor leaves
+      - key: SESSION_TTL_SECONDS
+        value: "300"
+      - key: MAX_UPLOAD_MB
+        value: "20"
+      - key: MAX_PAGES
+        value: "30"
+      - key: OCR_THREADS
+        value: "1"
