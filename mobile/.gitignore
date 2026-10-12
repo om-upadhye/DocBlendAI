@@ -77,5 +77,6 @@ yarn-error.log
 # release signing (keep a private backup; never commit)
 keystore.properties
 
-# built app (share it; do not commit)
+# build outputs; only the shared demo APK is committed
 *.apk
+!/DocBlendAI.apk
