@@ -8,7 +8,7 @@ tier (Certain / Moderate / Uncertain / Unreadable).
 
 **Supported uploads:** PDF, images (JPG, PNG, TIFF incl. multi-page, BMP, WEBP;
 phone photos are turned upright automatically), Word (.docx, including tables),
-PowerPoint (.pptx, one page per slide), and plain text (.txt). See `CLAUDE.md` for full
+PowerPoint (.pptx, one page per slide), and plain text (.txt). See `PROJECT_NOTES.md` for full
 project context.
 
 **Team members:** start with [CONTRIBUTING.md](CONTRIBUTING.md) for the Git workflow and troubleshooting.

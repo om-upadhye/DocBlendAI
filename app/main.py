@@ -1,6 +1,6 @@
 """FastAPI entry point: app instance, router registration, health check.
 
-Single monolith (see CLAUDE.md): all 7 modules run in this one process and
+Single monolith (see PROJECT_NOTES.md): all 7 modules run in this one process and
 are wired together through the routers.
 
 Run with:  venv/Scripts/python -m uvicorn app.main:app --reload

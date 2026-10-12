@@ -14,4 +14,3 @@ data/chroma_db/*
 # evaluation: regenerate with python -m evaluation.make_dataset / run_eval
 evaluation/dataset/
 evaluation/results/work/
-.claude/

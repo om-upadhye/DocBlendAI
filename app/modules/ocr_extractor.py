@@ -6,7 +6,7 @@ Tesseract's word confidences, weighted by word length, so it tracks the share
 of characters recognized confidently.
 
 Uses from schemas.py: nothing directly; output feeds chunker.py -> RecognizedChunk.
-Requires the Tesseract binary on the system (see CLAUDE.md).
+Requires the Tesseract binary on the system (see PROJECT_NOTES.md).
 """
 
 import logging

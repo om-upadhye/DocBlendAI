@@ -1,7 +1,7 @@
 """Shared Pydantic schemas for all 7 DocBlendAI modules.
 
 Single source of truth for the entities in the synopsis Problem Analysis table
-(see CLAUDE.md). Field names here must match that table exactly: every module,
+(see PROJECT_NOTES.md). Field names here must match that table exactly: every module,
 router, and ORM model imports from this file.
 
 Entities: Document, RecognizedChunk, Query, RetrievalResult, Answer.
