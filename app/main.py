@@ -80,7 +80,8 @@ def health() -> dict[str, str]:
 @app.get("/", include_in_schema=False)
 def frontend() -> FileResponse:
     """Demo UI: upload documents, ask questions, see reliability labels and sources."""
-    return FileResponse(STATIC_DIR / "index.html")
+    # no-cache: browsers re-check on every visit, so a redeploy shows the new page at once.
+    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 if __name__ == "__main__":
