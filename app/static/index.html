@@ -217,12 +217,12 @@
            padding: 4px 12px; text-decoration: none; font-weight: 600; }
   .p-act:hover { background: #dde4fd; }
   .p-body { height: 72vh; margin: 0 12px 12px; border-radius: 12px; background: var(--bg); overflow: auto; border: 1px solid var(--line); }
-  .p-body iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
   .p-body > img { display: block; max-width: 100%; margin: 0 auto; }
-  .p-pages { display: grid; gap: 12px; padding: 12px; }
-  .p-pages img { display: block; width: 100%; height: auto; background: #fff; border-radius: 6px; box-shadow: var(--shadow); }
+  .p-pages { display: grid; gap: 18px; padding: 16px; }
+  .p-page { margin: 0; }
+  .p-page img { display: block; width: 100%; height: auto; background: #fff; border-radius: 6px; box-shadow: var(--shadow); }
+  .p-page figcaption { margin-top: 6px; text-align: center; font-size: 12px; color: var(--muted); }
   .p-sheet { background: #fff; border-radius: 6px; box-shadow: var(--shadow); padding: 18px 22px; }
-  .p-sheet h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
   .p-sheet pre { margin: 0; white-space: pre-wrap; font: 14px/1.6 "Segoe UI", system-ui, sans-serif; }
   .p-empty { height: 100%; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; }
   .privacy { margin: 10px 18px 0; font-size: 12px; color: #13805f; background: var(--mint-soft); border-radius: 10px; padding: 8px 12px; }
@@ -309,6 +309,54 @@
   .v-lines li.rbox .ltext { -webkit-line-clamp: 4; }
   pre.v-mono { margin: 0 auto; max-width: none; background: #fff; border-radius: 6px; box-shadow: var(--shadow); padding: 20px 24px;
                font: 13px/1.45 Consolas, "Cascadia Mono", "Courier New", monospace; white-space: pre; overflow: auto; color: var(--text); }
+  /* ---------- floating document window ---------- */
+  .p-page img, .p-page .p-sheet { cursor: zoom-in; transition: transform .18s ease, box-shadow .18s ease; }
+  .p-page:hover img, .p-page:hover .p-sheet { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(31, 42, 68, .16); }
+  dialog#docwin { width: min(920px, 92vw); height: min(90vh, 1100px); max-width: 100vw; max-height: 100vh; padding: 0; border: 0;
+                  border-radius: 18px; background: var(--bg); color: var(--text); overflow: hidden; resize: both;
+                  box-shadow: 0 30px 80px rgba(20, 28, 48, .35), 0 2px 8px rgba(20, 28, 48, .12); }
+  dialog#docwin[open] { display: flex; flex-direction: column; animation: dw-in .32s cubic-bezier(.2, .9, .25, 1) both; }
+  dialog#docwin[open].closing { animation: dw-out .2s ease-in both; }
+  dialog#docwin::backdrop { background: rgba(20, 28, 48, .42); backdrop-filter: blur(4px); animation: dw-fade .3s ease both; }
+  dialog#docwin.closing::backdrop { animation: dw-fade .2s ease reverse both; }
+  @keyframes dw-in { from { opacity: 0; transform: translateY(24px) scale(.94); } to { opacity: 1; transform: none; } }
+  @keyframes dw-out { to { opacity: 0; transform: translateY(16px) scale(.96); } }
+  @keyframes dw-fade { from { opacity: 0; } to { opacity: 1; } }
+  .dw-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 18px; background: var(--panel);
+             border-bottom: 1px solid var(--line); cursor: grab; user-select: none; touch-action: none; }
+  .dw-head.dragging { cursor: grabbing; }
+  .dw-head h3 { margin: 0; font-size: 15px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dw-page { font-size: 12px; color: var(--muted); background: var(--soft); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+  .dw-tools { display: inline-flex; align-items: center; gap: 2px; background: var(--soft); border-radius: 999px; padding: 3px; }
+  .dw-tools button, .dw-close { border: 0; background: transparent; color: var(--text); width: 32px; height: 32px; border-radius: 999px;
+                                font-size: 16px; display: grid; place-items: center; cursor: pointer; transition: background .15s; }
+  .dw-tools button:hover, .dw-close:hover { background: var(--panel); }
+  .dw-tools .fit { width: auto; padding: 0 10px; font-size: 12px; font-weight: 600; }
+  .dw-zoom { min-width: 44px; text-align: center; font-size: 12px; color: var(--muted); }
+  .dw-close { background: var(--soft); }
+  .dw-close:hover { background: var(--rose-soft); color: var(--rose); }
+  .dw-body { flex: 1; overflow: auto; padding: 22px; scroll-behavior: smooth; overscroll-behavior: contain; }
+  .dw-pages { display: grid; justify-items: center; gap: 22px; }
+  .dw-pages figure { margin: 0; width: calc(var(--zoom, 100) * 1%); max-width: none; transition: width .25s cubic-bezier(.2, .9, .25, 1);
+                     animation: dw-page .4s ease both; }
+  .dw-pages figure:nth-child(2) { animation-delay: .05s; } .dw-pages figure:nth-child(n+3) { animation-delay: .1s; }
+  @keyframes dw-page { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .dw-pages img { display: block; width: 100%; height: auto; background: #fff; border-radius: 4px; box-shadow: var(--shadow); }
+  .dw-pages .p-sheet { min-height: 200px; }
+  .dw-pages figcaption { margin-top: 6px; text-align: center; font-size: 12px; color: var(--muted); }
+  @media (max-width: 920px), (max-height: 520px) and (pointer: coarse) {
+    dialog#docwin { width: 100vw; height: 100vh; height: 100dvh; border-radius: 0; resize: none; translate: none !important; }
+    dialog#docwin[open] { animation-name: dw-up; }
+    dialog#docwin[open].closing { animation: dw-down .22s ease-in both; }
+    @keyframes dw-up { from { opacity: .6; transform: translateY(40%); } to { opacity: 1; transform: none; } }
+    @keyframes dw-down { to { opacity: 0; transform: translateY(30%); } }
+    .dw-head { cursor: default; padding-top: max(10px, env(safe-area-inset-top)); }
+    .dw-body { padding: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    dialog#docwin[open], dialog#docwin.closing, dialog#docwin::backdrop, .dw-pages figure { animation: none !important; }
+    .dw-pages figure, .p-page img, .p-page .p-sheet { transition: none; }
+  }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
@@ -363,8 +411,8 @@
   <section class="card" id="preview-card" aria-labelledby="p-title">
     <div class="p-head">
       <h2 id="p-title">Preview</h2>
+      <button type="button" class="p-act" id="p-open" hidden>Open ⤢</button>
       <button type="button" class="p-act" id="p-read" hidden>What I read</button>
-      <a class="p-act" id="p-open" target="_blank" rel="noopener" hidden>Open ↗</a>
       <select class="dl" id="p-dl" aria-label="Download what was read" hidden></select>
       <button type="button" class="p-act phone-only" id="p-ask">Ask about it →</button>
     </div>
@@ -412,6 +460,22 @@
     Ask
   </button>
 </nav>
+
+<!-- ======== floating document window ======== -->
+<dialog id="docwin" aria-labelledby="dw-title">
+  <div class="dw-head" id="dw-head">
+    <h3 id="dw-title">Document</h3>
+    <span class="dw-page" id="dw-page"></span>
+    <div class="dw-tools" role="group" aria-label="Zoom">
+      <button type="button" id="dw-out" aria-label="Zoom out">−</button>
+      <span class="dw-zoom" id="dw-zoom">100%</span>
+      <button type="button" id="dw-in" aria-label="Zoom in">+</button>
+      <button type="button" class="fit" id="dw-fit">Fit</button>
+    </div>
+    <button type="button" class="dw-close" id="dw-close" aria-label="Close">✕</button>
+  </div>
+  <div class="dw-body" id="dw-body"><div class="dw-pages" id="dw-pages"></div></div>
+</dialog>
 
 <!-- ======== page viewer ======== -->
 <dialog id="viewer" aria-labelledby="v-title">
@@ -596,7 +660,7 @@ async function loadDocs(newDocId) {
 }
 
 // ---------- preview of the original document ----------
-const preview = { id: null };
+const preview = { id: null, pages: null, word: "Page" };
 const BROWSER_IMAGES = ["jpg", "jpeg", "png", "webp"];
 const touchScreen = matchMedia("(pointer: coarse)").matches;  // phone browsers can't show PDFs inside a page
 
@@ -606,6 +670,7 @@ function markViewing() {
 
 function clearPreview() {
   preview.id = null;
+  preview.pages = null;
   document.getElementById("p-title").textContent = "Preview";
   document.getElementById("p-open").hidden = document.getElementById("p-read").hidden = document.getElementById("p-dl").hidden = true;
   document.getElementById("p-body").replaceChildren(el("div", { class: "p-empty" }, "Pick a document and I'll keep it open here while we talk about it."));
@@ -619,9 +684,6 @@ async function showPreview(doc) {
   const ext = name.split(".").pop().toLowerCase();
   const body = document.getElementById("p-body");
   document.getElementById("p-title").textContent = name;
-  const open = document.getElementById("p-open");
-  open.href = fileUrl;
-  open.hidden = !(ext === "pdf" || ext === "txt" || BROWSER_IMAGES.includes(ext));
   const dl = document.getElementById("p-dl");
   fillDownloads(dl, doc.doc_id);
   dl.hidden = false;
@@ -629,27 +691,134 @@ async function showPreview(doc) {
   read.hidden = false;
   read.onclick = () => openViewer(doc);
 
-  if (ext === "pdf" && !touchScreen) {
-    body.replaceChildren(el("iframe", { src: fileUrl + "#view=FitH", title: `Preview of ${name}` }));
-    return;
-  }
+  const open = document.getElementById("p-open");
+  open.hidden = false;
+  open.onclick = () => openDocWindow(0);
   if (BROWSER_IMAGES.includes(ext)) {
-    body.replaceChildren(el("img", { src: fileUrl, alt: name }));
+    preview.pages = [{ page: 1, image_url: fileUrl, text: "" }];
+    preview.word = "Page";
+    const fig = el("figure", { class: "p-page" }, el("img", { src: fileUrl, alt: name }));
+    fig.addEventListener("click", () => openDocWindow(0));
+    body.replaceChildren(el("div", { class: "p-pages" }, fig));
     return;
   }
-  // PDF on phones, TIFF/BMP, Word, PowerPoint, text: the page images or text saved at upload.
+  // PDFs, TIFF/BMP, Word, PowerPoint, text: our own clean page view (page images or text saved at
+  // upload), never the browser's built-in PDF viewer with its toolbar.
   body.replaceChildren(el("div", { class: "p-empty" }, "Opening…"));
   try {
     const pages = await api(`/documents/${doc.doc_id}/pages`);
     if (preview.id !== doc.doc_id) return;
     const word = ext === "pptx" ? "Slide" : "Page";
-    body.replaceChildren(el("div", { class: "p-pages" }, ...pages.map((p) => p.image_url
-      ? el("img", { src: p.image_url, alt: `${word} ${p.page} of ${name}`, loading: "lazy" })
-      : el("div", { class: "p-sheet" }, el("h4", {}, `${word} ${p.page}`), el("pre", {}, p.text || "(no text)")))));
+    preview.pages = pages;
+    preview.word = word;
+    const figures = pages.map((p, i) => {
+      const fig = pageFigure(p, word, pages.length, name);
+      fig.addEventListener("click", () => openDocWindow(i));
+      return fig;
+    });
+    body.replaceChildren(el("div", { class: "p-pages" }, ...figures));
   } catch (err) {
     if (preview.id === doc.doc_id) body.replaceChildren(el("div", { class: "p-empty" }, err.message));
   }
 }
+
+function pageFigure(p, word, total, name) {
+  const caption = el("figcaption", {}, `${word} ${p.page} of ${total}`);
+  return p.image_url
+    ? el("figure", { class: "p-page" }, el("img", { src: p.image_url, alt: `${word} ${p.page} of ${name}`, loading: "lazy" }), caption)
+    : el("figure", { class: "p-page" }, el("div", { class: "p-sheet" }, el("pre", {}, p.text || "(nothing written on this page)")), caption);
+}
+
+// ---------- floating document window: smooth open / close, zoom, page indicator, drag ----------
+const docwin = { el: document.getElementById("docwin"), zoom: 100, observer: null };
+const ZOOM_STEPS = [50, 67, 80, 100, 125, 150, 200, 250];
+
+function setZoom(z) {
+  docwin.zoom = Math.max(ZOOM_STEPS[0], Math.min(ZOOM_STEPS[ZOOM_STEPS.length - 1], z));
+  document.getElementById("dw-pages").style.setProperty("--zoom", docwin.zoom);
+  document.getElementById("dw-zoom").textContent = `${docwin.zoom}%`;
+}
+function stepZoom(dir) {
+  const next = dir > 0 ? ZOOM_STEPS.find((z) => z > docwin.zoom) : [...ZOOM_STEPS].reverse().find((z) => z < docwin.zoom);
+  if (next) setZoom(next);
+}
+
+function openDocWindow(index) {
+  if (!preview.pages || !preview.pages.length) return;
+  const name = docLabel(preview.id);
+  const pages = preview.pages;
+  document.getElementById("dw-title").textContent = name;
+  const list = document.getElementById("dw-pages");
+  const figures = pages.map((p) => pageFigure(p, preview.word || "Page", pages.length, name));
+  list.replaceChildren(...figures);
+  setZoom(100);
+  const win = docwin.el;
+  win.classList.remove("closing");
+  win.style.translate = "";
+  win.showModal();
+  const pageLabel = document.getElementById("dw-page");
+  pageLabel.textContent = `${preview.word || "Page"} ${index + 1} of ${pages.length}`;
+  docwin.observer?.disconnect();
+  docwin.observer = new IntersectionObserver((entries) => {  // live "Page n of N" while scrolling
+    const seen = entries.filter((e) => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+    if (seen) pageLabel.textContent = `${preview.word || "Page"} ${figures.indexOf(seen.target) + 1} of ${pages.length}`;
+  }, { root: document.getElementById("dw-body"), threshold: [0.25, 0.5, 0.75] });
+  figures.forEach((f) => docwin.observer.observe(f));
+  const body = document.getElementById("dw-body");
+  body.style.scrollBehavior = "auto";
+  body.scrollTop = 0;
+  if (index > 0) requestAnimationFrame(() => { figures[index].scrollIntoView({ block: "start" }); body.style.scrollBehavior = ""; });
+  else body.style.scrollBehavior = "";
+}
+
+function closeDocWindow() {
+  const win = docwin.el;
+  if (!win.open || win.classList.contains("closing")) return;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { win.close(); return; }
+  win.classList.add("closing");
+  let done = false;
+  const finish = () => { if (done) return; done = true; win.classList.remove("closing"); win.close(); };
+  const onEnd = (e) => { if (e.target === win) { win.removeEventListener("animationend", onEnd); finish(); } };  // not a page's fade-in
+  win.addEventListener("animationend", onEnd);
+  setTimeout(finish, 400);  // always closes, even if no animation ran
+}
+
+document.getElementById("dw-close").addEventListener("click", closeDocWindow);
+document.getElementById("dw-in").addEventListener("click", () => stepZoom(1));
+document.getElementById("dw-out").addEventListener("click", () => stepZoom(-1));
+document.getElementById("dw-fit").addEventListener("click", () => setZoom(100));
+docwin.el.addEventListener("cancel", (e) => { e.preventDefault(); closeDocWindow(); });  // Esc: animate out
+docwin.el.addEventListener("click", (e) => { if (e.target === docwin.el) closeDocWindow(); });  // click outside the window
+docwin.el.addEventListener("keydown", (e) => {
+  if (e.key === "+" || e.key === "=") { e.preventDefault(); stepZoom(1); }
+  if (e.key === "-") { e.preventDefault(); stepZoom(-1); }
+});
+document.getElementById("dw-body").addEventListener("wheel", (e) => {  // Ctrl + wheel zooms the pages, not the site
+  if (!e.ctrlKey) return;
+  e.preventDefault();
+  stepZoom(e.deltaY < 0 ? 1 : -1);
+}, { passive: false });
+
+// Drag the window by its title bar (desktop; on phones it is full screen).
+(() => {
+  const head = document.getElementById("dw-head");
+  let start = null;
+  head.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button") || matchMedia("(max-width: 920px)").matches) return;
+    const [x = 0, y = 0] = (docwin.el.style.translate || "0px 0px").split(" ").map((v) => parseFloat(v) || 0);
+    start = { px: e.clientX, py: e.clientY, x, y };
+    head.setPointerCapture(e.pointerId);
+    head.classList.add("dragging");
+  });
+  head.addEventListener("pointermove", (e) => {
+    if (!start) return;
+    docwin.el.style.translate = `${start.x + e.clientX - start.px}px ${start.y + e.clientY - start.py}px`;
+  });
+  const end = () => { start = null; head.classList.remove("dragging"); };
+  head.addEventListener("pointerup", end);
+  head.addEventListener("pointercancel", end);
+  head.addEventListener("dblclick", (e) => { if (!e.target.closest("button")) docwin.el.style.translate = ""; });  // back to centre
+})();
 
 async function deleteDoc(id) {
   if (!confirm(`Remove "${docLabel(id)}"? I'll stop using it for answers.`)) return;
