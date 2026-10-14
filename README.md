@@ -146,6 +146,18 @@ flowchart TD
     PS --> OUT["Response: Document JSON<br/>the client opens the preview"]
 ```
 
+### Fast uploads
+
+- **Photos are shrunk before they are sent.** The website (in the browser) and the app (Take
+  photo, From gallery) resize photos to 2600 px on the long side as JPEG (quality 85 / 80): a
+  4–12 MB phone photo becomes well under 1 MB, every letter still readable. The server resizes
+  pages to about A4 anyway, so recognition is unchanged. PDFs and Office files are sent as they
+  are (they are already compressed). Both show real upload progress ("Uploading 45% of 0.6 MB").
+- **Detection's read is reused.** Deciding typed / scanned / handwritten reads the first two
+  pages; for photos and 1–2 page scans those reads become the extraction, so pages are read once.
+- **Models load at start-up**, in the background (`PRELOAD_MODELS`), so the first upload does not
+  wait for the OCR, layout, and table models.
+
 ### How the format is decided (Module 2)
 
 ```mermaid
@@ -671,6 +683,7 @@ All optional except the key; put them in `.env` (local) or the host's environmen
 | `LAYOUT_ANALYSIS` | true | Layout regions on scanned / handwritten pages (false: lines grouped by position only) |
 | `LAYOUT_MODEL` | `pp_layout_cdla` | Layout model; `pp_doc_layoutv2` / `v3` = PP-StructureV3's PP-DocLayout (larger) |
 | `TABLE_MODEL` | `slanet_plus` | Structure model for tables without drawn lines (empty: word alignment) |
+| `PRELOAD_MODELS` | true | Load the OCR / layout / table models at start-up instead of on the first upload |
 | `TABLE_REREAD` | true | Read table areas again with PaddleOCR (Tesseract often misses ruled-cell text) |
 | `PUBLIC_DEMO` | false | Private per-tab sessions with automatic deletion (true on Render) |
 | `SESSION_TTL_SECONDS` | 300 | Delete a silent session's documents after this long |

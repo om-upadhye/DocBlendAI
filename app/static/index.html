@@ -718,28 +718,88 @@ async function uploadAll(files) {
   }
 }
 
+// Photos are shrunk in the browser before upload: phone photos are often 3-12 MB, while
+// 2600 px on the long side at JPEG quality 85 keeps every letter readable for OCR
+// (the server resizes pages to about A4 anyway). PDFs and Office files are sent as they are.
+const SHRINK_TYPES = ["image/jpeg", "image/png", "image/webp", "image/bmp"];
+const MAX_SIDE = 2600;
+const SHRINK_ABOVE = 700 * 1024;
+
+async function shrinkPhoto(file) {
+  if (!SHRINK_TYPES.includes(file.type) || file.size < SHRINK_ABOVE || !window.createImageBitmap) return file;
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });  // phone photos upright
+    const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";  // transparent PNGs: white paper, not black
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    if (!blob || blob.size >= file.size) return file;  // never send something bigger
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch { return file; }  // the server can still read the original
+}
+
+function sizeText(bytes) { return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`; }
+
+// fetch() cannot report upload progress; XMLHttpRequest can.
+function uploadWithProgress(form, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/upload");
+    xhr.setRequestHeader("X-Session-Id", SESSION_ID);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.upload.onload = () => onProgress(1);
+    xhr.onload = () => {
+      let body = {};
+      try { body = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+      else reject(new Error(typeof body.detail === "string" ? body.detail : `Something went wrong (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new Error("Upload failed. Check your internet connection and try again."));
+    xhr.send(form);
+  });
+}
+
 async function uploadOne(file) {
   const jobs = document.getElementById("progress");
-  const msg = el("span", { class: "jmsg" }, STEPS[0] + "…");
+  const msg = el("span", { class: "jmsg" }, "Preparing…");
   const job = el("div", { class: "job" }, el("span", { class: "spinner", "aria-hidden": "true" }),
     el("div", { style: "min-width:0" }, el("div", { class: "jname" }, file.name), msg));
   jobs.prepend(job);
-  const started = Date.now();
-  let step = 0;
-  const timer = setInterval(() => {  // friendly progress; handwriting takes a few seconds per page
-    const secs = Math.round((Date.now() - started) / 1000);
-    if (secs > 2 + step * 5 && step < STEPS.length - 1) step++;
+
+  let note = "";
+  const original = file.size;
+  if (SHRINK_TYPES.includes(file.type) && original >= SHRINK_ABOVE) msg.textContent = "Shrinking photo…";
+  file = await shrinkPhoto(file);
+  if (file.size < original) note = ` Photo shrunk ${sizeText(original)} → ${sizeText(file.size)}.`;
+
+  let uploaded = 0, readingSince = null, step = 1;
+  const show = () => {
+    if (readingSince === null) { msg.textContent = `Uploading ${Math.round(uploaded * 100)}% of ${sizeText(file.size)}…`; return; }
+    const secs = Math.round((Date.now() - readingSince) / 1000);  // server side: reading takes a few seconds per page
+    if (secs > 3 + (step - 1) * 5 && step < STEPS.length - 1) step++;
     msg.textContent = `${STEPS[step]}… ${secs}s`;
-  }, 500);
+  };
+  const timer = setInterval(show, 500);
+  show();
   const form = new FormData();
   form.append("file", file);
   const hint = document.getElementById("hint").value;
   if (hint) form.append("format_hint", hint);
   try {
-    const doc = await api("/upload", { method: "POST", body: form });
+    const doc = await uploadWithProgress(form, (fraction) => {
+      uploaded = fraction;
+      if (fraction >= 1 && readingSince === null) readingSince = Date.now();
+      show();
+    });
     job.className = "job ok";
     job.firstChild.replaceWith(svgIcon('<path d="M20 6 9 17l-5-5"/>'));
-    msg.textContent = `Done! Read as ${FORMAT[doc.format_type].toLowerCase()}, ${doc.page_count} page${doc.page_count > 1 ? "s" : ""}.`;
+    msg.textContent = `Done! Read as ${FORMAT[doc.format_type].toLowerCase()}, ${doc.page_count} page${doc.page_count > 1 ? "s" : ""}.${note}`;
     setTimeout(() => job.remove(), 8000);
     return doc.doc_id;
   } catch (err) {

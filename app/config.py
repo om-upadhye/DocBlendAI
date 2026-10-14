@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     table_model: str = "slanet_plus"
     # Read table areas again with the PaddleOCR engine (Tesseract often misses text in ruled cells).
     table_reread: bool = True
+    # Load the OCR, layout, and table models at start-up (in the background) instead of on the
+    # first upload, so the first user does not wait for them.
+    preload_models: bool = True
 
     database_url: str = f"sqlite:///{(DATA_DIR / 'docblendai.db').as_posix()}"
     chroma_dir: Path = DATA_DIR / "chroma_db"

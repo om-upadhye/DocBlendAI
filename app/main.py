@@ -34,6 +34,26 @@ logger = logging.getLogger(__name__)
 SWEEP_SECONDS = 15
 
 
+def _warm_up_models() -> None:
+    """Load the recognition and layout models now, so the first upload does not wait for them."""
+    import time
+
+    from app.modules import layout_analysis, paddle_extractor
+
+    started = time.perf_counter()
+    steps = [("PaddleOCR", lambda: paddle_extractor._engine(settings.ocr_threads))]
+    if settings.layout_analysis:
+        steps.append(("layout model", lambda: layout_analysis._layout_engine(settings.layout_model)))
+    if settings.table_model:
+        steps.append(("table model", lambda: layout_analysis._table_engine(settings.table_model)))
+    for name, load in steps:
+        try:
+            load()
+        except Exception as e:  # loads again (and reports) on first use
+            logger.warning("Could not preload the %s: %s", name, e)
+    logger.info("Models ready in %.1fs", time.perf_counter() - started)
+
+
 def _sweep_once() -> None:
     with SessionLocal() as db:
         site.end_expired_sessions(db)
@@ -54,6 +74,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     settings.chroma_dir.mkdir(parents=True, exist_ok=True)
     init_db()
+    if settings.preload_models:  # in the background: the server answers at once while models load
+        asyncio.get_running_loop().run_in_executor(None, _warm_up_models)
     sweeper = asyncio.create_task(_sweep_sessions()) if settings.public_demo else None
     yield
     if sweeper:

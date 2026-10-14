@@ -87,6 +87,8 @@ def upload_document(
         # Any failure (rejection, service error, or bug) leaves no stray upload behind.
         path.unlink(missing_ok=True)
         raise
+    finally:
+        format_detection.forget(str(path))
     logger.info("Uploaded %s as %s", file.filename, doc_id)
     return document
 
