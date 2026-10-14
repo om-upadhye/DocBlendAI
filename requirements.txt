@@ -33,6 +33,12 @@ rapidocr==3.9.2
 onnxruntime==1.30.0
 opencv-python==5.0.0.93
 
+# --- Layout analysis: regions, tables, reading order (layout_analysis.py) ----
+# PP layout model (bundled, ~7 MB) and SLANet-plus table structure (~7 MB, downloaded once),
+# both ONNX on the same ONNX Runtime as above.
+rapid-layout==1.2.1
+rapid-table==3.0.2
+
 # --- Handwriting recognition: TrOCR (optional engine, HTR_ENGINE=trocr) ------
 # CPU builds from PyPI. With an NVIDIA GPU, install torch/torchvision from
 # https://pytorch.org/get-started/locally/ instead, before this file.

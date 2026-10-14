@@ -71,8 +71,9 @@ def _group_lines(boxes: list[tuple[float, float, float, float, str, float]]) -> 
 def read_image(page: Image.Image, lines_out: list | None = None) -> tuple[str, float]:
     """Read one page image. Returns (text, raw_conf); nothing found gives ("", 0.0).
 
-    If lines_out is a list, one {"text", "conf", "box"} dict per line is appended,
-    box = [x0, y0, x1, y1] as fractions of the page size.
+    If lines_out is a list, one {"text", "conf", "box", "words"} dict per line is appended,
+    box = [x0, y0, x1, y1] as fractions of the page size; words are the detected text pieces
+    of the line, each with its own text, conf and box.
     """
     result = _engine(settings.ocr_threads)(np.array(page.convert("RGB")))
     if not result.txts:
@@ -94,7 +95,12 @@ def read_image(page: Image.Image, lines_out: list | None = None) -> tuple[str, f
         chars += line_chars
         if lines_out is not None:
             box = [min(b[0] for b in line) / w, min(b[1] for b in line) / h, max(b[2] for b in line) / w, max(b[3] for b in line) / h]
-            lines_out.append({"text": text, "conf": round(conf, 4), "box": [round(v, 5) for v in box]})
+            # Each detected text piece too: table cells and spacing (layout_analysis.py) need them.
+            words = [
+                {"text": b[4], "conf": round(b[5], 4), "box": [round(b[0] / w, 5), round(b[1] / h, 5), round(b[2] / w, 5), round(b[3] / h, 5)]}
+                for b in line
+            ]
+            lines_out.append({"text": text, "conf": round(conf, 4), "box": [round(v, 5) for v in box], "words": words})
     return "\n".join(texts), (weighted / chars if chars else 0.0)
 
 

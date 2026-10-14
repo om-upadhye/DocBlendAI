@@ -10,7 +10,20 @@ export type Doc = {doc_id: string; file_path: string; format_type: FormatType; p
 
 export type Line = {text: string; conf: number; box: number[]};
 export type Block = {type: 'paragraph' | 'table' | 'image'; text: string; rows?: string[][] | null};
-export type Page = {page: number; text: string; conf: number; image_url: string | null; lines: Line[]; blocks: Block[]};
+export type RegionType = 'title' | 'text' | 'table' | 'figure' | 'caption' | 'formula' | 'header' | 'footer' | 'reference';
+// A layout region of a scanned / handwritten page, in reading order (server: layout_analysis.py).
+export type Region = {type: RegionType; box: number[]; text: string; conf: number; rows?: string[][] | null};
+export type Page = {
+  page: number;
+  text: string;
+  conf: number;
+  image_url: string | null;
+  lines: Line[];
+  regions?: Region[];
+  blocks: Block[];
+  layout_text?: string; // the page as monospace text, spacing and columns kept
+};
+export type ExportFormat = 'layout' | 'md' | 'csv' | 'json' | 'txt';
 
 export type Answer = {answer_id: string; answer_text: string; reliability_label: Reliability};
 export type Source = {
@@ -103,6 +116,9 @@ export const getStats = () => request<Stats>('/stats');
 export const listDocuments = () => request<Doc[]>('/documents');
 export const deleteDocument = (docId: string) => request<void>(`/documents/${docId}`, {method: 'DELETE'});
 export const getPages = (docId: string) => request<Page[]>(`/documents/${docId}/pages`);
+
+// Download link (the doc_id is the access key, so the phone's browser can open it directly).
+export const exportUrl = (docId: string, format: ExportFormat) => absoluteUrl(`/documents/${docId}/export?format=${format}`);
 
 export function uploadDocument(file: UploadFile, formatHint: FormatType | null): Promise<Doc> {
   const form = new FormData();

@@ -61,5 +61,9 @@ def classify(text: str) -> ContentType:
 
 
 def label_chunks(chunks: list[RecognizedChunk]) -> list[RecognizedChunk]:
-    """Return copies of the chunks with content_type set."""
-    return [c.model_copy(update={"content_type": classify(c.text)}) for c in chunks]
+    """Return copies of the chunks with content_type set.
+
+    A chunk already labelled table or image (by layout analysis, which saw the page) keeps
+    its label; the text rules above only decide for the rest.
+    """
+    return [c if c.content_type is not ContentType.PARAGRAPH else c.model_copy(update={"content_type": classify(c.text)}) for c in chunks]

@@ -16,7 +16,15 @@ from app.config import settings
 from app.db import models  # noqa: F401  (registers tables on Base.metadata)
 from app.db.database import Base, get_db
 from app.main import app
-from app.modules import confidence_capture, embedder, htr_extractor, ocr_extractor, paddle_extractor, vector_store
+from app.modules import (
+    confidence_capture,
+    embedder,
+    htr_extractor,
+    layout_analysis,
+    ocr_extractor,
+    paddle_extractor,
+    vector_store,
+)
 
 
 def make_pdf(pages: list[str]) -> bytes:
@@ -163,6 +171,22 @@ def no_real_paddle_engine(monkeypatch: pytest.MonkeyPatch) -> None:
         pytest.fail("a test tried to run the real PaddleOCR engine; use the fake_htr fixture")
 
     monkeypatch.setattr(paddle_extractor, "_engine", _refuse)
+
+
+@pytest.fixture(autouse=True)
+def fake_layout(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """Never run the real layout / table models: detections come from fake.regions (default none)."""
+    fake = SimpleNamespace(regions=[])
+    monkeypatch.setattr(layout_analysis, "detect", lambda image: [dict(r) for r in fake.regions])
+
+    def _refuse(model_type):
+        raise layout_analysis.LayoutUnavailableError("table model is not used in tests")
+
+    monkeypatch.setattr(layout_analysis, "_table_engine", _refuse)
+    # Re-reading tables would run the real PaddleOCR engine: fake.reread (default nothing) instead.
+    fake.reread = []
+    monkeypatch.setattr(layout_analysis, "read_region", lambda image, box: [dict(l) for l in fake.reread])
+    return fake
 
 
 @pytest.fixture

@@ -82,6 +82,7 @@ flowchart LR
 | Typed text | pdfplumber, python-docx, python-pptx | Read the text that is already digital |
 | Printed scans | Tesseract (pytesseract) | OCR with word confidences, page-orientation fix |
 | Handwriting | PaddleOCR PP-OCRv6 via RapidOCR / ONNX Runtime (TrOCR optional) | Line detection + recognition with line confidences |
+| Layout & tables | PP layout model (rapid-layout), drawn-grid reading (OpenCV), SLANet-plus (rapid-table), all ONNX | Titles / text / tables / figures / captions / headers / footers, table cells, reading order, spacing |
 | Vectors | ChromaDB | Chunk embeddings and similarity search |
 | Relational data | SQLite + SQLAlchemy | Documents, questions, answers, scores, sessions, counters |
 | LLM | Gemini `gemini-embedding-001` + `gemini-3.5-flash-lite` (google-genai SDK) | Embeddings and grounded answers |
@@ -100,7 +101,7 @@ flowchart TD
     Pick -- "Take a photo (app)" --> Up
     Up["POST /upload<br/>(+ optional 'kind of writing' hint)"] --> Wait["Progress: Uploading, Reading pages,<br/>Recognising text, Understanding it"]
     Wait --> Prev["Preview screen<br/>the document is shown<br/>GET /documents/{id}/file or /pages"]
-    Prev -- "What I read" --> Read["Each recognised line with its confidence<br/>(green / amber / red),<br/>or paragraphs / tables / pictures for typed files"]
+    Prev -- "What I read" --> Read["Layout: titles, text, tables, figures boxed on the page<br/>Lines: each line with its confidence (green / amber / red)<br/>Spacing: the page as text with its columns kept<br/>Download: layout text, Markdown, CSV, JSON"]
     Prev -- "Ask about it" --> Ask["Ask screen<br/>type a question or tap a suggestion"]
     Ask --> Q["POST /ask"]
     Q --> Ans["Answer + reliability label<br/>(Certain / Moderate / Uncertain / Unreadable)"]
@@ -132,10 +133,11 @@ flowchart TD
     D -- "Handwriting<br/>(handwriting engine reads it better)" --> HTR["HANDWRITTEN<br/>paddle_extractor.py (default)<br/>or htr_extractor.py (TrOCR)<br/>find lines, recognise, line confidences"]
 
     TP --> CH
-    OCR --> CH
-    HTR --> CH
+    OCR --> LA
+    HTR --> LA
+    LA["Layout analysis - layout_analysis.py<br/>regions (title, text, table, figure, ...),<br/>tables rebuilt row by row, reading order,<br/>spacing-preserving layout text"] --> CH
 
-    CH["Chunking - chunker.py<br/>~1000-character chunks, 200 overlap,<br/>never across pages; each keeps its page's raw_conf"] --> CAL["Module 3 - Confidence calibration<br/>confidence_capture.py<br/>raw_conf to calibrated_conf<br/>(expected character accuracy, data/calibration.json)"]
+    CH["Chunking - chunker.py<br/>~1000-character chunks, 200 overlap, never across pages;<br/>tables and figures become their own chunks"] --> CAL["Module 3 - Confidence calibration<br/>confidence_capture.py<br/>raw_conf to calibrated_conf<br/>(expected character accuracy, data/calibration.json)"]
     CAL --> CT["Module 4 - Content type<br/>content_type.py<br/>table / paragraph / image (figure text)"]
     CT --> EMB["Embedding - embedder.py<br/>Gemini gemini-embedding-001,<br/>768 numbers per chunk"]
     EMB --> VS[("ChromaDB - vector_store.py<br/>text + vector + doc_id,<br/>content_type, confidences")]
@@ -164,6 +166,38 @@ flowchart TD
 The user can skip detection with the *kind of writing* choice (`format_hint`); Word, PowerPoint,
 and text files are always typed, and an image can never be typed.
 
+### Layout analysis: regions, tables, reading order, spacing
+
+Scanned and handwritten pages go through [app/modules/layout_analysis.py](app/modules/layout_analysis.py)
+right after recognition (about 0.3–1 s per page, plus a few seconds per table):
+
+```mermaid
+flowchart TD
+    IMG["Page image + recognised lines<br/>(each with its words and boxes)"] --> DET["Layout model (PP layout family, ONNX)<br/>boxes: title, text, table, figure, caption,<br/>formula, header, footer, reference"]
+    DET --> DUP["Remove duplicate boxes<br/>(the more specific type wins)"]
+    DUP --> ASSIGN["Each line goes to the region holding its centre;<br/>lines outside every region are grouped by position<br/>(short blocks of tall lines become titles)"]
+    ASSIGN --> TAB{"Table region?"}
+    TAB -- yes --> RE["Read the table area again with PaddleOCR<br/>(Tesseract often misses text in ruled cells)"]
+    RE --> GRID{"Drawn grid lines found?"}
+    GRID -- "yes (ruled table)" --> G["Cells from the grid (OpenCV):<br/>merged cells where a rule is missing,<br/>multi-line cells kept whole"]
+    GRID -- no --> SL["SLANet-plus table structure model<br/>+ the words matched into its cells<br/>(word alignment as the last fallback)"]
+    TAB -- no --> ORDER
+    G --> ORDER
+    SL --> ORDER
+    ORDER["Reading order: header, then bands top to bottom<br/>(left column before right), footer last"] --> OUT["Saved for the viewer and downloads:<br/>regions with boxes, confidence, table rows,<br/>and the layout text (spacing and columns kept)"]
+    ORDER --> QA["For answering: page text rebuilt in reading order,<br/>table rows as cells separated by two spaces,<br/>each table its own chunk labelled 'table'"]
+```
+
+- **Typed PDFs** keep their exact text; their paragraphs, tables, and pictures come from the PDF
+  itself ([typed_layout.py](app/modules/typed_layout.py)) and the layout text from pdfplumber's
+  layout mode. Word, PowerPoint, and text files are laid out from their own structure.
+- **Downloads** ([exporters.py](app/modules/exporters.py)): layout text (spacing kept), Markdown
+  (titles as headings, tables as Markdown tables), tables as CSV (a zip when there are several),
+  JSON (everything), and plain text: `GET /documents/{id}/export?format=...`.
+- **Models:** the layout model is bundled with rapid-layout (~7 MB); SLANet-plus (~7 MB)
+  downloads once (the Docker image includes it). `LAYOUT_MODEL=pp_doc_layoutv2` switches to
+  PP-StructureV3's larger PP-DocLayout model.
+
 ### What each step produces
 
 | Step | File | Input → output |
@@ -172,12 +206,13 @@ and text files are always typed, and an image can never be typed.
 | Detect | `modules/format_detection.py` | file → `typed` / `scanned` / `handwritten` |
 | Extract | `text_parser.py`, `ocr_extractor.py`, `paddle_extractor.py`, `htr_extractor.py` | file → list of `(page_text, raw_conf)` |
 | Page images | `pdf_render.py` | PDF pages / photos → upright, denoised grayscale images |
-| Chunk | `chunker.py` | pages → `RecognizedChunk`s with ids `"<doc_id>:<n>"` |
+| Layout | `layout_analysis.py` | page image + lines → regions, table rows, reading-order text, layout text |
+| Chunk | `chunker.py` | pages (or their layout regions) → `RecognizedChunk`s with ids `"<doc_id>:<n>"`; tables kept whole |
 | Calibrate | `confidence_capture.py` | `raw_conf` → `calibrated_conf` (typed is always 1.0) |
-| Label | `content_type.py` | chunk text → `table` / `paragraph` / `image` |
+| Label | `content_type.py` | chunk text → `table` / `paragraph` / `image` (a label from layout analysis is kept) |
 | Embed | `embedder.py` | chunk text → 768-number vector (Gemini, task `RETRIEVAL_DOCUMENT`) |
 | Store | `vector_store.py`, `db/models.py` | chunks → ChromaDB; `Document` → SQLite |
-| Viewer | `page_store.py`, `typed_layout.py` | page images + line boxes + blocks → `uploads/<doc_id>_pages/` |
+| Viewer | `page_store.py`, `typed_layout.py` | page images + line boxes + regions + blocks + layout text → `uploads/<doc_id>_pages/` |
 
 If anything fails, nothing half-finished is left behind: the saved file is removed, and vectors are
 deleted if the database row cannot be written.
@@ -374,7 +409,7 @@ In Docker / Render everything above lives under `/data` (`DATABASE_URL`, `CHROMA
 | 1 | Document Upload | `routers/upload.py`, `modules/file_types.py` | `upload_document`, `_ingest`, `kind_of` |
 | 2 | Format Detection & Text Extraction | `modules/format_detection.py`, `text_parser.py`, `ocr_extractor.py`, `paddle_extractor.py`, `htr_extractor.py`, `pdf_render.py` | `resolve_format`, `detect_format`, `extract`, `ocr_file`, `paddle_file`, `auto_orient` |
 | 3 | Confidence Capture & Calibration | `modules/confidence_capture.py` | `calibrate`, `apply_calibration`, `fit_calibration` |
-| 4 | Content-Type Identification | `modules/content_type.py`, `typed_layout.py` (viewer), `chunker.py` | `classify`, `label_chunks`, `chunk_pages` |
+| 4 | Content-Type Identification | `modules/content_type.py`, `layout_analysis.py`, `typed_layout.py`, `chunker.py`, `exporters.py` | `classify`, `label_chunks`, `analyze_page`, `grid_rows`, `chunk_pages` |
 | 5 | Confidence-Aware Retrieval (RAG) | `modules/retrieval.py`, `embedder.py`, `vector_store.py` | `retrieve`, `combined_score`, `embed_query`, `search` |
 | 6 | Reliability Tier Classification | `modules/reliability.py` | `classify_reliability`, `worse_of` |
 | 7 | LLM Answer Generation | `modules/llm_answer.py` | `build_prompt`, `generate_answer` |
@@ -408,7 +443,8 @@ Interactive docs with a "Try it out" button: `/docs` on any running server
 | GET | `/documents` | This session's documents, oldest first | ✔ | ✔ |
 | DELETE | `/documents/{doc_id}` | Remove a document everywhere | ✔ | ✔ |
 | GET | `/documents/{doc_id}/file` | The original file, for the preview | ✔ | ✔ (images) |
-| GET | `/documents/{doc_id}/pages` | Per-page text, recognised lines, blocks, image links | ✔ | ✔ |
+| GET | `/documents/{doc_id}/pages` | Per-page text, recognised lines, layout regions, blocks, layout text, image links | ✔ | ✔ |
+| GET | `/documents/{doc_id}/export?format=` | Download: `layout` (spacing kept), `md`, `csv` (tables), `json`, `txt` | ✔ | ✔ |
 | GET | `/documents/{doc_id}/pages/{n}/image` | Page image that recognition read | ✔ | ✔ |
 | GET | `/documents/{doc_id}/pictures/{name}` | A picture found in a typed document | ✔ | – |
 | POST | `/ask` | Ask a question → answer + reliability label | ✔ | ✔ |
@@ -477,16 +513,30 @@ and the row. Past answers stay, without this document in their sources.
 
 ```json
 [
-  {"page": 1, "text": "Unit 3 AI planning ...", "conf": 0.82,
+  {"page": 1, "text": "Semester Results\n\nName  DSA  Total\nAsha  91  258", "conf": 0.82,
    "image_url": "/documents/75a3.../pages/1/image",
-   "lines": [{"text": "Unit 3 AI planning", "conf": 0.91, "box": [0.08, 0.05, 0.62, 0.09]}],
-   "blocks": []}
+   "lines": [{"text": "Semester Results", "conf": 0.91, "box": [0.08, 0.05, 0.62, 0.09],
+              "words": [{"text": "Semester", "conf": 0.93, "box": [0.08, 0.05, 0.33, 0.09]}]}],
+   "regions": [
+     {"type": "title", "box": [0.08, 0.05, 0.62, 0.09], "text": "Semester Results", "conf": 0.91},
+     {"type": "table", "box": [0.08, 0.2, 0.89, 0.4], "text": "Name  DSA  Total\nAsha  91  258",
+      "conf": 0.97, "rows": [["Name", "DSA", "Total"], ["Asha", "91", "258"]]}],
+   "blocks": [],
+   "layout_text": "Semester Results\n\n Name     DSA     Total\n Asha     91      258"}
 ]
 ```
 
-`lines` (scans and handwriting): each recognised line, its calibrated confidence, and its box as
-fractions of the page. `blocks` (typed files): paragraphs, tables (`rows`), and pictures
-(`picture_url`). Used by the website's preview and "What I read" viewer and by the app's Preview tab.
+`lines` (scans and handwriting): each recognised line with its words, calibrated confidence, and
+box as fractions of the page. `regions` (scans and handwriting): the layout in reading order
+(title, text, table with `rows`, figure, caption, formula, header, footer, reference). `blocks`
+(typed files): paragraphs, tables (`rows`), and pictures (`picture_url`). `layout_text`: the page
+with its spacing and columns kept. Used by the website's viewer (Layout / Lines / Spacing) and by
+the app's Preview tab.
+
+**`GET /documents/{doc_id}/export?format=layout|md|csv|json|txt`** → a file download
+(`Content-Disposition: attachment`), e.g. `notes_layout.txt`, `notes.md`, `notes_tables.csv`
+(or `.zip` with one CSV per table), `notes.json`, `notes.txt`. `404` for `csv` when no table was
+found. Like `/file`, the random `doc_id` is the access key, so the app opens it in the phone's browser.
 
 ### Questions and answers
 
@@ -618,6 +668,10 @@ All optional except the key; put them in `.env` (local) or the host's environmen
 | `TOP_K` | 5 | Passages per answer |
 | `SIMILARITY_WEIGHT` | 0.7 | Weight of similarity in `combined_score` (the rest is confidence) |
 | `HTR_ENGINE` | `paddle` | Handwriting engine: `paddle` or `trocr` |
+| `LAYOUT_ANALYSIS` | true | Layout regions on scanned / handwritten pages (false: lines grouped by position only) |
+| `LAYOUT_MODEL` | `pp_layout_cdla` | Layout model; `pp_doc_layoutv2` / `v3` = PP-StructureV3's PP-DocLayout (larger) |
+| `TABLE_MODEL` | `slanet_plus` | Structure model for tables without drawn lines (empty: word alignment) |
+| `TABLE_REREAD` | true | Read table areas again with PaddleOCR (Tesseract often misses ruled-cell text) |
 | `PUBLIC_DEMO` | false | Private per-tab sessions with automatic deletion (true on Render) |
 | `SESSION_TTL_SECONDS` | 300 | Delete a silent session's documents after this long |
 | `MAX_UPLOAD_MB` / `MAX_PAGES` | 0 (no limit) | Upload limits (20 MB / 30 pages on Render) |
@@ -656,7 +710,9 @@ app/
 │   ├── ocr_extractor.py     Module 2: pytesseract OCR, page-orientation correction
 │   ├── paddle_extractor.py  Module 2: handwriting via PaddleOCR PP-OCRv6 (default engine)
 │   ├── htr_extractor.py     Module 2: TrOCR HTR (optional engine), ruled-notebook segmentation
-│   ├── page_store.py        Modules 1-2: page images + line boxes for the viewer
+│   ├── page_store.py        Modules 1-2: page images, line boxes, regions, layout text for the viewer
+│   ├── layout_analysis.py   Modules 2/4: layout regions, tables (grid / SLANet-plus), reading order, spacing
+│   ├── exporters.py         Downloads: layout text, Markdown, CSV tables, JSON, plain text
 │   ├── typed_layout.py      Module 4: paragraphs / tables / pictures of typed files, for the viewer
 │   ├── confidence_capture.py Module 3: raw -> calibrated confidence
 │   ├── content_type.py      Module 4: table / paragraph / image labeling

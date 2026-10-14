@@ -7,8 +7,10 @@ line boxed and scored.
 Stored per document under settings.upload_dir / "<doc_id>_pages":
 - page_<n>.jpg: the page image recognition read (after orientation fix),
   reduced to at most MAX_SIDE px; typed PDFs get a plain render
-- layout.json: [{"page", "text", "conf", "image", "lines": [{"text", "conf", "box"}], "blocks": [...]}]
-  with boxes as fractions of the page size, so they fit any display size
+- layout.json: [{"page", "text", "conf", "image", "lines": [{"text", "conf", "box", "words"}],
+  "regions": [...], "layout_text", "blocks": [...]}] with boxes as fractions of the page size,
+  so they fit any display size. regions (scans and handwriting) come from layout_analysis.py;
+  layout_text is the page with its spacing kept
 - pic_<n>.png: pictures found in typed documents
 
 Scanned and handwritten pages carry recognised lines; typed pages carry
@@ -24,6 +26,8 @@ import re
 import shutil
 from contextlib import closing
 from pathlib import Path
+
+import pdfplumber
 
 from app.config import settings
 from app.modules.file_types import FileKind, kind_of
@@ -59,10 +63,16 @@ def save(doc_id: str, file_path: str, extracted: list[tuple[str, float]], layout
                 image.thumbnail((MAX_SIDE, MAX_SIDE))
                 name = f"page_{i + 1}.jpg"
                 image.save(directory / name, quality=80)
-            lines = layout[i]["lines"] if i < len(layout) else []
-            pages.append({"page": i + 1, "text": text, "conf": round(conf, 4), "image": name, "lines": lines})
+            record = layout[i] if i < len(layout) else {}
+            pages.append({
+                "page": i + 1, "text": text, "conf": round(conf, 4), "image": name,
+                "lines": record.get("lines", []),
+                "regions": record.get("regions", []),
+                "layout_text": record.get("layout_text") or text,
+            })
         if typed:
             _add_blocks(pages, file_path, directory)
+            _add_layout_text(pages, file_path)
         (directory / "layout.json").write_text(json.dumps(pages), encoding="utf-8")
     except Exception:  # the viewer is a convenience; the document itself was ingested fine
         logger.exception("Could not save page view for %s", doc_id)
@@ -76,6 +86,20 @@ def _add_blocks(pages: list[dict], file_path: str, directory: Path) -> None:
         found = []
     for i, page in enumerate(pages):
         page["blocks"] = found[i] if i < len(found) else []
+
+
+def _add_layout_text(pages: list[dict], file_path: str) -> None:
+    """Typed PDFs: the text layer laid out with its spacing and columns (pdfplumber's layout mode)."""
+    if kind_of(file_path) is not FileKind.PDF:
+        return
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            for page, pdf_page in zip(pages, pdf.pages[:MAX_PREVIEW_PAGES]):
+                text = pdf_page.extract_text(layout=True) or ""
+                laid_out = "\n".join(line.rstrip() for line in text.splitlines()).strip("\n")
+                page["layout_text"] = laid_out or page["text"]
+    except Exception:  # keep the plain text
+        logger.exception("Could not lay out the text of %s", file_path)
 
 
 def ensure_blocks(doc_id: str, file_path: str) -> None:
