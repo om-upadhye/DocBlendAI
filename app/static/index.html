@@ -320,13 +320,8 @@
     </div>
     <div class="grow">
       <h1>DocBlendAI</h1>
-      <p>Your study assistant for typed, scanned and handwritten notes, and it tells you how sure it is.</p>
     </div>
     <span class="pill">PDF · photos · Word · PowerPoint · text</span>
-    <div class="stats" id="stats" aria-live="polite" hidden>
-      <span class="stat" id="stat-visitors"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a7 7 0 0 1 14 0v1"/><path d="M17 4a4 4 0 0 1 0 8M22 21v-1a7 7 0 0 0-4-6.3"/></svg><span><b>0</b><span> visitors</span><span class="t"> today</span></span></span>
-      <span class="stat" id="stat-questions"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/></svg><span><b>0</b><span> questions</span><span class="t"> today</span></span></span>
-    </div>
   </div>
 </header>
 
@@ -334,8 +329,8 @@
   <!-- ======== documents ======== -->
   <section class="card" id="docs-card" aria-labelledby="docs-title">
     <div class="card-head">
-      <h2 id="docs-title">Your documents</h2>
-      <p>Add notes, and I'll read them, even handwriting.</p>
+      <h2 id="docs-title">Your notes</h2>
+      <p>Typed, printed or handwritten, share them with me and I'll read them through.</p>
     </div>
 
     <input type="file" id="file" class="sr" multiple
@@ -344,23 +339,23 @@
       <div class="icon" aria-hidden="true">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
       </div>
-      <strong>Drop files here</strong>
-      <span id="drop-help">or <span class="browse">browse</span>. You can add several at once.</span>
-      <div class="types" aria-hidden="true"><b>PDF</b><b>JPG</b><b>PNG</b><b>TIFF</b><b>Word</b><b>PowerPoint</b><b>TXT</b></div>
+      <strong>Drop your notes here</strong>
+      <span id="drop-help">or <span class="browse">pick them from your device</span>. Add as many as you like.</span>
+      <div class="types" aria-hidden="true"><b>PDF</b><b>Photo</b><b>Word</b><b>PowerPoint</b><b>Text</b></div>
     </div>
     <div class="hintrow">
-      <label for="hint">Kind of writing</label>
+      <label for="hint">What kind of writing?</label>
       <select id="hint">
-        <option value="">Detect for me</option>
-        <option value="typed">Typed (digital text)</option>
-        <option value="scanned">Printed / scanned</option>
+        <option value="">Let me work it out</option>
+        <option value="typed">Typed on a computer</option>
+        <option value="scanned">Printed or scanned</option>
         <option value="handwritten">Handwritten</option>
       </select>
     </div>
-    <p class="privacy" id="privacy" hidden>🔒 Your files are private to this tab and are deleted automatically when you leave the site.</p>
+    <p class="privacy" id="privacy" hidden>🔒 Only you can see your files, and I'll delete them shortly after you leave.</p>
     <div class="progress" id="progress" aria-live="polite"></div>
 
-    <div class="docs-head"><h3>Library</h3><span id="doc-count"></span></div>
+    <div class="docs-head"><h3>Your library</h3><span id="doc-count"></span></div>
     <ul class="docs" id="docs"></ul>
   </section>
 
@@ -374,33 +369,32 @@
       <button type="button" class="p-act phone-only" id="p-ask">Ask about it →</button>
     </div>
     <div class="p-body" id="p-body">
-      <div class="p-empty">Your document will show here while you ask questions about it.</div>
+      <div class="p-empty">Pick a document and I'll keep it open here while we talk about it.</div>
     </div>
   </section>
 
   <!-- ======== chat ======== -->
   <section class="card chat-card" id="chat-card" aria-labelledby="ask-title">
     <div class="card-head">
-      <h2 id="ask-title">Ask about your notes</h2>
+      <h2 id="ask-title">Let's talk about your notes</h2>
     </div>
     <div class="scope" id="scope" aria-live="polite"></div>
     <div class="chat" id="chat" aria-live="polite">
       <div class="welcome" id="welcome">
         <svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="36" r="34" fill="#eaeefe"/><rect x="20" y="22" width="32" height="24" rx="8" fill="#4f6ef7"/><circle cx="30" cy="34" r="3" fill="#fff"/><circle cx="42" cy="34" r="3" fill="#fff"/><path d="M28 50h16" stroke="#7c93ff" stroke-width="3" stroke-linecap="round"/><path d="M36 22v-6" stroke="#4f6ef7" stroke-width="3" stroke-linecap="round"/><circle cx="36" cy="14" r="3" fill="#7c93ff"/></svg>
-        <h3>Hi! I'm your DocBlend assistant 👋</h3>
-        <p>Upload a document, then ask me anything about it. With every answer I'll tell you how sure I am and show where I found it.</p>
+        <h3>Hi there! 👋</h3>
+        <p>Share a document with me and ask anything you like. I'll answer from your notes, tell you honestly how sure I am, and show you exactly where I found it.</p>
       </div>
     </div>
     <div class="suggest" id="suggest"></div>
     <form class="composer" id="ask-form">
       <label for="question" class="sr">Your question</label>
-      <textarea id="question" rows="1" placeholder="Ask a question… e.g. What is AI planning?" required></textarea>
+      <textarea id="question" rows="1" placeholder="Ask me anything about your notes…" required></textarea>
       <button type="submit" class="send" id="ask-btn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
         Ask
       </button>
     </form>
-    <p class="note">Press Enter to ask · Shift+Enter for a new line</p>
   </section>
 </main>
 
@@ -441,14 +435,14 @@
 <script>
 // ---------- wording ----------
 const REL = {
-  Certain:    { icon: "✔", title: "I'm confident", why: "This is clearly written in your document." },
-  Moderate:   { icon: "◐", title: "Fairly sure", why: "I found it, but the match was a bit loose or some words were hard to read." },
-  Uncertain:  { icon: "?", title: "Not sure", why: "I couldn't find strong support for this. Please check the source." },
-  Unreadable: { icon: "!", title: "Couldn't read it", why: "The part that answers this was too hard to read (poor scan or handwriting)." },
+  Certain:    { icon: "✔", title: "I'm sure about this", why: "It's written clearly in your notes." },
+  Moderate:   { icon: "◐", title: "I think so", why: "I found it, though the wording was a little loose or a few words were hard to make out." },
+  Uncertain:  { icon: "?", title: "I'm not certain", why: "I couldn't find solid support for this, so it's worth checking the source." },
+  Unreadable: { icon: "!", title: "I couldn't read that part", why: "The bit with the answer was too hard to read (a faint scan or messy handwriting)." },
 };
 const FORMAT = { typed: "Typed", scanned: "Printed / scanned", handwritten: "Handwritten" };
-const SUGGESTIONS = ["What is this document about?", "Summarise the key points", "List the main topics", "Explain the first definition"];
-const STEPS = ["Uploading", "Reading your pages", "Recognising the text", "Understanding it", "Almost done"];
+const SUGGESTIONS = ["What's this document about?", "Sum up the key points", "What are the main topics?", "Explain the first idea simply"];
+const STEPS = ["Uploading", "Looking at your pages", "Reading the text", "Making sense of it", "Nearly there"];
 
 // ---------- helpers ----------
 function el(tag, attrs = {}, ...children) {
@@ -493,21 +487,6 @@ async function heartbeat() {
 // Closing the tab: the server deletes this tab's files after a short grace period (a reload comes back first).
 window.addEventListener("pagehide", () => navigator.sendBeacon(`/session/${SESSION_ID}/leave`));
 
-async function loadStats() {
-  try {
-    const s = await api("/stats");
-    const set = (id, n, word, total) => {
-      const chip = document.getElementById(id);
-      chip.querySelector("b").textContent = n;
-      chip.querySelector("b + span").textContent = ` ${word}${n === 1 ? "" : "s"}`;
-      chip.title = `${n} today, ${total} in total`;
-    };
-    set("stat-visitors", s.visitors_today, "visitor", s.visitors_total);
-    set("stat-questions", s.questions_today, "question", s.questions_total);
-    document.getElementById("stats").hidden = false;
-  } catch {}
-}
-
 async function api(path, options = {}) {
   options.headers = { ...(options.headers || {}), "X-Session-Id": SESSION_ID };
   const resp = await fetch(path, options);
@@ -542,10 +521,10 @@ function renderScope() {
   scope.replaceChildren();
   if (!selected.size) {
     scope.className = "scope none";
-    scope.append("Tick “Ask about this” on a document so I know where to look.");
+    scope.append("Tick “Ask about this” on a document so I know which one you mean.");
   } else {
     scope.className = "scope";
-    scope.append("Looking in:");
+    scope.append("Reading from:");
     [...selected].forEach((id) => scope.append(el("span", { class: "tag" }, docLabel(id))));
   }
   renderSuggestions();
@@ -579,7 +558,7 @@ async function loadDocs(newDocId) {
   if (!docs.length) {
     list.append(el("li", { class: "empty" },
       svgIcon('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>', 34),
-      "Nothing here yet. Your uploaded notes will appear here."));
+      "Nothing here yet. Add a note and it'll show up here."));
   }
   for (const d of [...docs].reverse()) {  // newest first
     docNames[d.doc_id] = nameFromPath(d);
@@ -629,7 +608,7 @@ function clearPreview() {
   preview.id = null;
   document.getElementById("p-title").textContent = "Preview";
   document.getElementById("p-open").hidden = document.getElementById("p-read").hidden = document.getElementById("p-dl").hidden = true;
-  document.getElementById("p-body").replaceChildren(el("div", { class: "p-empty" }, "Your document will show here while you ask questions about it."));
+  document.getElementById("p-body").replaceChildren(el("div", { class: "p-empty" }, "Pick a document and I'll keep it open here while we talk about it."));
 }
 
 async function showPreview(doc) {
@@ -673,7 +652,7 @@ async function showPreview(doc) {
 }
 
 async function deleteDoc(id) {
-  if (!confirm(`Remove "${docLabel(id)}"? I won't use it for answers any more.`)) return;
+  if (!confirm(`Remove "${docLabel(id)}"? I'll stop using it for answers.`)) return;
   try {
     await api(`/documents/${id}`, { method: "DELETE" });
     selected.delete(id); saveSelection();
@@ -692,7 +671,7 @@ document.querySelectorAll(".tabbar button").forEach((b) => b.addEventListener("c
 document.getElementById("p-ask").addEventListener("click", () => { setView("chat"); document.getElementById("question").focus(); });
 setView("docs");
 if (matchMedia("(pointer: coarse)").matches) {
-  document.querySelector("#drop strong").textContent = "Tap to add a file";
+  document.querySelector("#drop strong").textContent = "Tap to add your notes";
   document.getElementById("drop-help").textContent = "PDF, photo of your notes, Word, PowerPoint or text.";
 }
 
@@ -799,7 +778,7 @@ async function uploadOne(file) {
     });
     job.className = "job ok";
     job.firstChild.replaceWith(svgIcon('<path d="M20 6 9 17l-5-5"/>'));
-    msg.textContent = `Done! Read as ${FORMAT[doc.format_type].toLowerCase()}, ${doc.page_count} page${doc.page_count > 1 ? "s" : ""}.${note}`;
+    msg.textContent = `All set! I read ${doc.page_count} ${FORMAT[doc.format_type].toLowerCase()} page${doc.page_count > 1 ? "s" : ""}.${note}`;
     setTimeout(() => job.remove(), 8000);
     return doc.doc_id;
   } catch (err) {
@@ -849,7 +828,7 @@ async function ask(question) {
       el("span", { class: `rel ${answer.reliability_label}` }, r.icon, " ", r.title),
       el("div", { class: "text" }, answer.answer_text),
       el("div", { class: "why" }, r.why),
-      el("div", { class: "from" }, `Looked in: ${docIds.map(docLabel).join(", ")}`));
+      el("div", { class: "from" }, `From: ${docIds.map(docLabel).join(", ")}`));
     if (sources.length) {
       const details = el("details", { class: "src" }, el("summary", {}, `Where I found this (${sources.length})`));
       sources.forEach((s) => details.append(sourceView(s)));
@@ -860,7 +839,6 @@ async function ask(question) {
   } finally {
     btn.disabled = false;
     chat.scrollTop = chat.scrollHeight;
-    loadStats();
   }
 }
 
@@ -1128,8 +1106,6 @@ document.getElementById("v-close").addEventListener("click", () => document.getE
 (async () => {
   const info = await heartbeat();
   setInterval(heartbeat, ((info && info.heartbeat_seconds) || 60) * 1000);
-  loadStats();
-  setInterval(loadStats, 60000);
   try { await loadDocs(); }
   catch (err) { document.getElementById("progress").append(el("div", { class: "job err" }, el("span", { class: "jmsg" }, err.message))); }
 })();

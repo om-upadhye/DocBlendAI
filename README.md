@@ -113,8 +113,8 @@ flowchart TD
 
 **On the website** the three areas (documents, preview, chat) sit side by side on a laptop; on a
 phone they become three screens switched with a bottom tab bar. **The Android app** has the same
-three tabs, plus **Take photo** for handwritten or printed notes. The header of both shows
-*visitors today* and *questions today*.
+three tabs, plus **Take photo** and **From gallery** for handwritten or printed notes. Visitors and
+questions are counted on the server (`GET /stats`) but not shown on the page.
 
 ---
 
@@ -683,7 +683,8 @@ All optional except the key; put them in `.env` (local) or the host's environmen
 | `LAYOUT_ANALYSIS` | true | Layout regions on scanned / handwritten pages (false: lines grouped by position only) |
 | `LAYOUT_MODEL` | `pp_layout_cdla` | Layout model; `pp_doc_layoutv2` / `v3` = PP-StructureV3's PP-DocLayout (larger) |
 | `TABLE_MODEL` | `slanet_plus` | Structure model for tables without drawn lines (empty: word alignment) |
-| `PRELOAD_MODELS` | true | Load the OCR / layout / table models at start-up instead of on the first upload |
+| `OCR_MAX_SIDE` | 1600 | Longest image side PaddleOCR's detector uses (lower = less memory; 1600 reads A4 like 2000) |
+ true | Load the OCR / layout / table models at start-up instead of on the first upload |
 | `TABLE_REREAD` | true | Read table areas again with PaddleOCR (Tesseract often misses ruled-cell text) |
 | `PUBLIC_DEMO` | false | Private per-tab sessions with automatic deletion (true on Render) |
 | `SESSION_TTL_SECONDS` | 300 | Delete a silent session's documents after this long |

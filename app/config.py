@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # scans read far better than TrOCR. "trocr": the synopsis's TrOCR, kept for comparison.
     htr_engine: str = "paddle"
     ocr_threads: int = 2  # CPU threads for the Paddle engine; keeps a laptop or small server responsive
+    ocr_max_side: int = 1600  # longest image side Paddle's detector uses (lower = less memory)
     # TrOCR (when htr_engine="trocr"): small runs on CPU; trocr-base-handwritten is more accurate but ~4x slower.
     htr_model: str = "microsoft/trocr-small-handwritten"
     calibration_file: Path = DATA_DIR / "calibration.json"

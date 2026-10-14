@@ -22,10 +22,10 @@ export const colors = {
 export type Reliability = 'Certain' | 'Moderate' | 'Uncertain' | 'Unreadable';
 
 export const RELIABILITY: Record<Reliability, {icon: string; title: string; why: string; fg: string; bg: string}> = {
-  Certain: {icon: '✔', title: "I'm confident", why: 'This is clearly written in your document.', fg: colors.mint, bg: colors.mintSoft},
-  Moderate: {icon: '◐', title: 'Fairly sure', why: 'I found it, but the match was a bit loose or some words were hard to read.', fg: colors.amber, bg: colors.amberSoft},
-  Uncertain: {icon: '?', title: 'Not sure', why: "I couldn't find strong support for this. Please check the source.", fg: colors.violet, bg: colors.violetSoft},
-  Unreadable: {icon: '!', title: "Couldn't read it", why: 'The part that answers this was too hard to read (poor scan or handwriting).', fg: colors.rose, bg: colors.roseSoft},
+  Certain: {icon: '✔', title: "I'm sure about this", why: "It's written clearly in your notes.", fg: colors.mint, bg: colors.mintSoft},
+  Moderate: {icon: '◐', title: 'I think so', why: 'I found it, though the wording was a little loose or a few words were hard to make out.', fg: colors.amber, bg: colors.amberSoft},
+  Uncertain: {icon: '?', title: "I'm not certain", why: "I couldn't find solid support for this, so it's worth checking the source.", fg: colors.violet, bg: colors.violetSoft},
+  Unreadable: {icon: '!', title: "I couldn't read that part", why: 'The bit with the answer was too hard to read (a faint scan or messy handwriting).', fg: colors.rose, bg: colors.roseSoft},
 };
 
 export const FORMAT_LABEL: Record<string, string> = {

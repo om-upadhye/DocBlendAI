@@ -10,11 +10,14 @@ FROM python:3.11-slim-bookworm
 
 ARG WITH_TROCR=false
 
+# MALLOC_ARENA_MAX=2: fewer malloc arenas, so a multi-threaded server holds less unused memory
+# (helps it stay within a 512 MB plan).
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_ROOT_USER_ACTION=ignore
+    PIP_ROOT_USER_ACTION=ignore \
+    MALLOC_ARENA_MAX=2
 
 # Tesseract for printed scans; libgl/glib for OpenCV (used by RapidOCR).
 RUN apt-get update \

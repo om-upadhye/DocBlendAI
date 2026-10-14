@@ -29,12 +29,12 @@ type Job = {
 };
 
 const HINTS: {value: FormatType | null; label: string}[] = [
-  {value: null, label: 'Detect for me'},
+  {value: null, label: 'Let me work it out'},
   {value: 'typed', label: 'Typed'},
   {value: 'scanned', label: 'Printed'},
   {value: 'handwritten', label: 'Handwritten'},
 ];
-const STEPS = ['Uploading', 'Reading your pages', 'Recognising the text', 'Understanding it', 'Almost done'];
+const STEPS = ['Uploading', 'Looking at your pages', 'Reading the text', 'Making sense of it', 'Nearly there'];
 const PICK_TYPES = [types.pdf, types.images, types.docx, types.pptx, types.plainText];
 // Camera and gallery photos are shrunk by Android before upload: 2600 px on the long side at
 // JPEG quality 80 keeps every letter readable and makes a 4-12 MB phone photo well under 1 MB.
@@ -105,7 +105,7 @@ export default function DocumentsScreen(props: Props) {
           ),
         );
         const pages = `${doc.page_count} page${doc.page_count > 1 ? 's' : ''}`;
-        update(id, {state: 'ok', message: `Done! Read as ${FORMAT_LABEL[doc.format_type].toLowerCase()}, ${pages}.`});
+        update(id, {state: 'ok', message: `All set! I read ${pages} (${FORMAT_LABEL[doc.format_type].toLowerCase()}).`});
         setTimeout(() => setJobs(js => js.filter(j => j.id !== id)), 8000);
         last = doc;
       } catch (e: any) {
@@ -159,8 +159,8 @@ export default function DocumentsScreen(props: Props) {
   const docs = [...props.docs].reverse(); // newest first
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.h2}>Your documents</Text>
-      <Text style={styles.sub}>Add notes, and I'll read them, even handwriting.</Text>
+      <Text style={styles.h2}>Your notes</Text>
+      <Text style={styles.sub}>Typed, printed or handwritten, share them with me and I'll read them through.</Text>
 
       <View style={styles.uploadRow}>
         <Pressable style={({pressed}) => [styles.uploadBtn, pressed && styles.pressed]} onPress={chooseFiles}>
@@ -180,7 +180,7 @@ export default function DocumentsScreen(props: Props) {
         </Pressable>
       </View>
 
-      <Text style={styles.label}>Kind of writing</Text>
+      <Text style={styles.label}>What kind of writing?</Text>
       <View style={styles.chips}>
         {HINTS.map(h => (
           <Pressable
@@ -195,7 +195,7 @@ export default function DocumentsScreen(props: Props) {
       </View>
 
       {props.publicDemo && (
-        <Text style={styles.privacy}>🔒 Your files are private to this app session and are deleted automatically a few minutes after you leave.</Text>
+        <Text style={styles.privacy}>🔒 Only you can see your files, and I'll delete them shortly after you leave.</Text>
       )}
 
       {jobs.map(j => (
@@ -211,10 +211,10 @@ export default function DocumentsScreen(props: Props) {
       ))}
 
       <View style={styles.libHead}>
-        <Text style={styles.h3}>Library</Text>
+        <Text style={styles.h3}>Your library</Text>
         <Text style={styles.sub}>{docs.length ? `${docs.length} document${docs.length > 1 ? 's' : ''}` : ''}</Text>
       </View>
-      {!docs.length && <Text style={styles.empty}>Nothing here yet. Your uploaded notes will appear here.</Text>}
+      {!docs.length && <Text style={styles.empty}>Nothing here yet. Add a note and it'll show up here.</Text>}
       {docs.map(d => {
         const name = docName(d);
         const badge = kindBadge(name);

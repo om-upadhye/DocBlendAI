@@ -16,7 +16,7 @@ The Gemini key stays on the server; the app contains no secrets.
 | Preview | **Pages**; **Layout**: titles, text, tables (as grids), figures in reading order; **Lines**: each recognised line with its confidence; **Spacing**: the page as text with its columns kept; **Download**: layout text, Markdown, tables (CSV), JSON |
 | Ask | Chat with reliability labels, suggested questions, and "Where I found this" with match and legibility scores |
 
-The header shows visitors and questions today (same counters as the website). Documents are
+Documents are
 private to the app session and the server deletes them a few minutes after the app is closed.
 
 ## How the app works

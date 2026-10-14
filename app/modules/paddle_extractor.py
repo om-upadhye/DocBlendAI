@@ -49,6 +49,9 @@ def _engine(threads: int):
             "Rec.ocr_version": OCRVersion.PPOCRV6,
             "Det.model_type": ModelType.SMALL,
             "Rec.model_type": ModelType.SMALL,
+            # Longest image side the detector works on. 1600 reads A4 pages the same as the
+            # default 2000 but needs ~100 MB less memory: it keeps the server within 512 MB.
+            "Global.max_side_len": settings.ocr_max_side,
         }
     )
 

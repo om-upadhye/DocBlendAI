@@ -19,7 +19,7 @@ import {
 import {SafeAreaProvider, useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import * as api from './src/api';
-import type {Doc, Stats} from './src/api';
+import type {Doc} from './src/api';
 import AskScreen from './src/screens/AskScreen';
 import DocumentsScreen from './src/screens/DocumentsScreen';
 import PreviewScreen from './src/screens/PreviewScreen';
@@ -38,14 +38,9 @@ function Main() {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [stats, setStats] = useState<Stats | null>(null);
   const [publicDemo, setPublicDemo] = useState(false);
   const [connection, setConnection] = useState<'waking' | 'ok' | 'error'>('waking');
   const beatEvery = useRef(60);
-
-  const refreshStats = useCallback(() => {
-    api.getStats().then(setStats).catch(() => {});
-  }, []);
 
   const loadDocs = useCallback(async (newDocId?: string) => {
     const list = await api.listDocuments(); // oldest first
@@ -70,12 +65,11 @@ function Main() {
       beatEvery.current = Math.max(10, info.heartbeat_seconds);
       setPublicDemo(info.public_demo);
       setConnection('ok');
-      refreshStats();
       await loadDocs();
     } catch {
       setConnection('error');
     }
-  }, [loadDocs, refreshStats]);
+  }, [loadDocs]);
 
   useEffect(() => {
     connect();
@@ -89,7 +83,6 @@ function Main() {
     }
     const timer = setInterval(() => {
       api.heartbeat(30000).catch(() => {});
-      refreshStats();
     }, beatEvery.current * 1000);
     const sub = AppState.addEventListener('change', state => {
       if (state === 'active') {
@@ -97,14 +90,13 @@ function Main() {
           .heartbeat()
           .then(() => loadDocs())
           .catch(() => {});
-        refreshStats();
       }
     });
     return () => {
       clearInterval(timer);
       sub.remove();
     };
-  }, [connection, loadDocs, refreshStats]);
+  }, [connection, loadDocs]);
 
   // Android back button: go back to Documents before leaving the app.
   useEffect(() => {
@@ -132,7 +124,7 @@ function Main() {
   }
 
   function remove(doc: Doc) {
-    Alert.alert('Remove document', `Remove "${api.docName(doc)}"? I won't use it for answers any more.`, [
+    Alert.alert('Remove document', `Remove "${api.docName(doc)}"? I'll stop using it for answers.`, [
       {text: 'Cancel', style: 'cancel'},
       {
         text: 'Remove',
@@ -159,12 +151,6 @@ function Main() {
           <Text style={styles.logoText}>D</Text>
         </View>
         <Text style={styles.title}>DocBlendAI</Text>
-        {stats && (
-          <View style={styles.stats}>
-            <Text style={styles.stat}>👥 {stats.visitors_today}</Text>
-            <Text style={styles.stat}>💬 {stats.questions_today} today</Text>
-          </View>
-        )}
       </View>
 
       {connection !== 'ok' && (
@@ -172,8 +158,8 @@ function Main() {
           {connection === 'waking' ? <ActivityIndicator color={colors.accent} /> : null}
           <Text style={[styles.bannerText, connection === 'error' && {color: colors.rose}]}>
             {connection === 'waking'
-              ? 'Connecting to the server… the free server sleeps when idle, so the first start can take up to a minute.'
-              : "Couldn't reach the server."}
+              ? "Just a moment, I'm waking up… the first start can take up to a minute."
+              : "I can't reach the server right now."}
           </Text>
           {connection === 'error' && (
             <Pressable style={styles.retry} onPress={connect}>
@@ -219,7 +205,7 @@ function Main() {
           <AskScreen
             selectedIds={docs.filter(d => selected.has(d.doc_id)).map(d => d.doc_id)}
             nameOf={nameOf}
-            onAsked={refreshStats}
+            onAsked={() => {}}
             onPickDocs={() => setView('docs')}
           />
         </View>
@@ -275,8 +261,6 @@ const styles = StyleSheet.create({
   logo: {width: 34, height: 34, borderRadius: 10, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center'},
   logoText: {color: '#fff', fontWeight: '800', fontSize: 17},
   title: {fontSize: 18, fontWeight: '800', color: colors.text},
-  stats: {marginLeft: 'auto', flexDirection: 'row', gap: 6},
-  stat: {fontSize: 12, color: colors.text, backgroundColor: colors.soft, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, overflow: 'hidden'},
   banner: {flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: colors.accentSoft},
   bannerErr: {backgroundColor: colors.roseSoft},
   bannerText: {flex: 1, fontSize: 13, color: colors.text},

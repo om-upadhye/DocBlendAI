@@ -105,7 +105,7 @@ export default function PreviewScreen({doc, onAsk}: Props) {
     return (
       <View style={styles.center}>
         <Text style={styles.emptyIcon}>📄</Text>
-        <Text style={styles.empty}>Your document will show here while you ask questions about it.</Text>
+        <Text style={styles.empty}>Pick a document and I'll keep it open here while we talk about it.</Text>
       </View>
     );
   }

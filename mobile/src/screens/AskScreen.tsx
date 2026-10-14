@@ -11,7 +11,7 @@ type Message =
   | {id: number; me: false; pending: true}
   | {id: number; me: false; pending: false; answer?: Answer; sources?: Source[]; looked?: string[]; error?: string};
 
-const SUGGESTIONS = ['What is this document about?', 'Summarise the key points', 'List the main topics', 'Explain the first definition'];
+const SUGGESTIONS = ["What's this document about?", 'Sum up the key points', 'What are the main topics?', 'Explain the first idea simply'];
 
 function Meter({label, value}: {label: string; value: number}) {
   return (
@@ -82,14 +82,14 @@ export default function AskScreen({selectedIds, nameOf, onAsked, onPickDocs}: Pr
       <View style={styles.scope}>
         {selectedIds.length ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scopeRow}>
-            <Text style={styles.scopeLabel}>Looking in:</Text>
+            <Text style={styles.scopeLabel}>Reading from:</Text>
             {selectedIds.map(id => (
               <Text key={id} style={styles.tag} numberOfLines={1}>{nameOf(id)}</Text>
             ))}
           </ScrollView>
         ) : (
           <Pressable onPress={onPickDocs}>
-            <Text style={styles.scopeNone}>Tick “Ask about this” on a document so I know where to look →</Text>
+            <Text style={styles.scopeNone}>Tick “Ask about this” on a document so I know which one you mean →</Text>
           </Pressable>
         )}
       </View>
@@ -103,9 +103,9 @@ export default function AskScreen({selectedIds, nameOf, onAsked, onPickDocs}: Pr
         {!messages.length && (
           <View style={styles.welcome}>
             <Text style={styles.bot}>🤖</Text>
-            <Text style={styles.welcomeTitle}>Hi! I'm your DocBlend assistant 👋</Text>
+            <Text style={styles.welcomeTitle}>Hi there! 👋</Text>
             <Text style={styles.welcomeText}>
-              Upload a document, then ask me anything about it. With every answer I'll tell you how sure I am and show where I found it.
+              Share a document with me and ask anything you like. I'll answer from your notes, tell you honestly how sure I am, and show you exactly where I found it.
             </Text>
           </View>
         )}
@@ -140,7 +140,7 @@ export default function AskScreen({selectedIds, nameOf, onAsked, onPickDocs}: Pr
               </Text>
               <Text style={styles.answer} selectable>{m.answer.answer_text}</Text>
               <Text style={styles.why}>{r.why}</Text>
-              <Text style={styles.from}>Looked in: {m.looked?.join(', ')}</Text>
+              <Text style={styles.from}>From: {m.looked?.join(', ')}</Text>
               {!!m.sources?.length && <Sources sources={m.sources} nameOf={nameOf} />}
             </View>
           );
@@ -162,7 +162,7 @@ export default function AskScreen({selectedIds, nameOf, onAsked, onPickDocs}: Pr
           style={styles.input}
           value={question}
           onChangeText={setQuestion}
-          placeholder="Ask a question…"
+          placeholder="Ask me anything about your notes…"
           placeholderTextColor={colors.muted}
           multiline
           maxLength={2000}
