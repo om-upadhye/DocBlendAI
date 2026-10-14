@@ -6,8 +6,7 @@ Confidence-aware multi-format document QA assistant: upload typed, scanned, or
 handwritten academic documents and ask questions. Every answer carries a reliability
 tier (**Certain / Moderate / Uncertain / Unreadable**) that says how far you can trust it.
 
-- **Website:** https://docblendai.onrender.com
-- **Android app:** [download the APK](https://github.com/gauravkal006/DocBlendAI/raw/main/mobile/DocBlendAI.apk) · source in [mobile/](mobile/README.md)
+- **Website:** https://docblendai.onrender.com (works on laptops, tablets, and phones)
 
 **Supported uploads:** PDF, images (JPG, PNG, TIFF incl. multi-page, BMP, WEBP;
 phone photos are turned upright automatically), Word (.docx, including tables),
@@ -21,30 +20,28 @@ project context.
 ## Contents
 
 1. [How it works in one picture](#1-how-it-works-in-one-picture)
-2. [What the user does (website and app)](#2-what-the-user-does-website-and-app)
+2. [What the user does](#2-what-the-user-does)
 3. [What happens when a document is uploaded](#3-what-happens-when-a-document-is-uploaded)
 4. [How a question is answered](#4-how-a-question-is-answered)
 5. [Sessions, privacy, and automatic cleanup](#5-sessions-privacy-and-automatic-cleanup)
 6. [Where data is stored](#6-where-data-is-stored)
 7. [The 7 modules and where each one lives](#7-the-7-modules-and-where-each-one-lives)
-8. [API reference (website and app)](#8-api-reference-website-and-app)
+8. [API reference](#8-api-reference)
 9. [Installation and running](#what-you-need)
 
 ---
 
 ## 1. How it works in one picture
 
-Two front ends (the website and the Android app) talk to **one FastAPI server** over the same
-HTTP API. The server does all the work: it reads documents (direct parsing, OCR, or handwriting
-recognition), stores them, finds the passages that answer a question, and asks **Gemini** to write
-the answer. Gemini is only ever called by the server, so the API key never reaches a browser or phone.
+The website (one page that adapts to laptops, tablets, and phones) talks to **one FastAPI server**
+over an HTTP API. The server does all the work: it reads documents (direct parsing, OCR, or
+handwriting recognition), stores them, finds the passages that answer a question, and asks
+**Gemini** to write the answer. Gemini is only ever called by the server, so the API key never
+reaches the browser.
 
 ```mermaid
 flowchart LR
-    subgraph Clients
-        W["Website<br/>app/static/index.html<br/>(browser, any device)"]
-        A["Android app<br/>mobile/ (React Native)"]
-    end
+    W["Website<br/>app/static/index.html<br/>(browser, any device)"]
 
     subgraph Server["FastAPI server (one process) - app/main.py"]
         R1["routers/upload.py<br/>upload, documents, pages"]
@@ -64,7 +61,6 @@ flowchart LR
     T["On the server:<br/>Tesseract OCR,<br/>PaddleOCR handwriting"]
 
     W -- "HTTPS + JSON" --> Server
-    A -- "HTTPS + JSON" --> Server
     R1 --> P
     R2 --> P
     R3 --> S
@@ -77,7 +73,6 @@ flowchart LR
 | Piece | Technology | Role |
 |---|---|---|
 | Website | Plain HTML/CSS/JS, one file | Upload, preview, chat; adapts to phones with bottom tabs |
-| Android app | React Native 0.87 (TypeScript) | Same features as native screens; camera upload |
 | Server | FastAPI (Python 3.11), single monolith | All 7 modules, separated by files, not by network |
 | Typed text | pdfplumber, python-docx, python-pptx | Read the text that is already digital |
 | Printed scans | Tesseract (pytesseract) | OCR with word confidences, page-orientation fix |
@@ -90,11 +85,11 @@ flowchart LR
 
 ---
 
-## 2. What the user does (website and app)
+## 2. What the user does
 
 ```mermaid
 flowchart TD
-    Open["Open the website or the app"] --> HB["Page / app sends a heartbeat<br/>POST /session/heartbeat<br/>(starts a private session, counts the visitor)"]
+    Open["Open the website"] --> HB["The page sends a heartbeat<br/>POST /session/heartbeat<br/>(starts a private session, counts the visitor)"]
     HB --> Docs["Documents screen"]
     Docs --> Pick{"Add a document"}
     Pick -- "Choose / drop a file" --> Up
@@ -107,14 +102,14 @@ flowchart TD
     Q --> Ans["Answer + reliability label<br/>(Certain / Moderate / Uncertain / Unreadable)"]
     Ans --> Src["'Where I found this'<br/>GET /answer/{id}/sources<br/>match and legibility of each passage"]
     Src --> Ask
-    Ans --> Leave["User closes the tab or app"]
+    Ans --> Leave["User closes the tab"]
     Leave --> Clean["Server deletes that session's documents<br/>a few minutes later (public demo)"]
 ```
 
-**On the website** the three areas (documents, preview, chat) sit side by side on a laptop; on a
-phone they become three screens switched with a bottom tab bar. **The Android app** has the same
-three tabs, plus **Take photo** and **From gallery** for handwritten or printed notes. Visitors and
-questions are counted on the server (`GET /stats`) but not shown on the page.
+The three areas (documents, preview, chat) sit side by side on a laptop; on a phone they become
+three screens switched with a bottom tab bar. On a phone, the file chooser also offers the camera,
+so notes can be photographed straight in. Visitors and questions are counted on the server
+(`GET /stats`) but not shown on the page.
 
 ---
 
@@ -148,11 +143,11 @@ flowchart TD
 
 ### Fast uploads
 
-- **Photos are shrunk before they are sent.** The website (in the browser) and the app (Take
-  photo, From gallery) resize photos to 2600 px on the long side as JPEG (quality 85 / 80): a
-  4–12 MB phone photo becomes well under 1 MB, every letter still readable. The server resizes
-  pages to about A4 anyway, so recognition is unchanged. PDFs and Office files are sent as they
-  are (they are already compressed). Both show real upload progress ("Uploading 45% of 0.6 MB").
+- **Photos are shrunk before they are sent.** The browser resizes photos to 2600 px on the long
+  side as JPEG (quality 85): a 4–12 MB phone photo becomes well under 1 MB, every letter still
+  readable. The server resizes pages to about A4 anyway, so recognition is unchanged. PDFs and
+  Office files are sent as they are (they are already compressed). The page shows real upload
+  progress ("Uploading 45% of 0.6 MB").
 - **Detection's read is reused.** Deciding typed / scanned / handwritten reads the first two
   pages; for photos and 1–2 page scans those reads become the extraction, so pages are read once.
 - **Models load at start-up**, in the background (`PRELOAD_MODELS`), so the first upload does not
@@ -239,7 +234,7 @@ deleted if the database row cannot be written.
 sequenceDiagram
     autonumber
     actor User
-    participant Client as Website / App
+    participant Client as Website
     participant API as routers/query.py
     participant RET as retrieval.py (Module 5)
     participant EMB as embedder.py
@@ -311,35 +306,35 @@ sequenceDiagram
 
 ## 5. Sessions, privacy, and automatic cleanup
 
-On the hosted demo (`PUBLIC_DEMO=true`) every browser tab or app launch is a private **session**:
+On the hosted demo (`PUBLIC_DEMO=true`) every browser tab is a private **session**:
 it sends a random `X-Session-Id` header with every request, sees only its own documents, and its
 files are deleted when the user leaves ([app/site.py](app/site.py)).
 
 ```mermaid
 sequenceDiagram
-    participant C as Browser tab / app
+    participant C as Browser tab
     participant S as Server (routers/site.py, app/site.py)
     participant BG as Cleanup loop (app/main.py, every 15 s)
 
     C->>S: POST /session/heartbeat {session_id, visitor_id}
     S-->>C: {public_demo: true, heartbeat_seconds: 75}
     Note over S: session.last_seen = now<br/>visitor counted once per day
-    loop while the page / app is open
+    loop while the page is open
         C->>S: POST /session/heartbeat (every ~75 s)
     end
     C->>S: POST /upload (X-Session-Id) - document belongs to this session
-    alt Website tab closed
+    alt Tab closed
         C->>S: POST /session/{id}/leave (sendBeacon)
         Note over S: expire after a 20 s grace period<br/>(a page reload heartbeats again in time)
-    else App closed or in background
+    else Browser closed or phone asleep
         Note over C: heartbeats stop
     end
     BG->>S: sessions silent for 5 minutes?
     S->>S: delete their documents: file, page images,<br/>ChromaDB chunks, SQLite rows
 ```
 
-- `visitor_id` is stored in the browser (`localStorage`) or the app (`AsyncStorage`) so one person
-  counts once per day; `session_id` is new per tab / app launch.
+- `visitor_id` is stored in the browser (`localStorage`) so one person counts once per day;
+  `session_id` is new per tab.
 - Counters (`GET /stats`): **visitors today** = distinct visitors with a heartbeat today,
   **questions today** = answered questions today. Days roll over at midnight India time.
 - Locally (`PUBLIC_DEMO` unset) nothing is deleted and every document is visible: the team's
@@ -426,11 +421,11 @@ In Docker / Render everything above lives under `/data` (`DATABASE_URL`, `CHROMA
 | 6 | Reliability Tier Classification | `modules/reliability.py` | `classify_reliability`, `worse_of` |
 | 7 | LLM Answer Generation | `modules/llm_answer.py` | `build_prompt`, `generate_answer` |
 | – | Website support (not a synopsis module) | `app/site.py`, `routers/site.py` | sessions, cleanup, `/stats` |
-| – | Front ends | `app/static/index.html`, `mobile/` | website, Android app |
+| – | Front end | `app/static/index.html` | website (desktop and phone layouts) |
 
 ---
 
-## 8. API reference (website and app)
+## 8. API reference
 
 Interactive docs with a "Try it out" button: `/docs` on any running server
 (e.g. https://docblendai.onrender.com/docs).
@@ -439,36 +434,36 @@ Interactive docs with a "Try it out" button: `/docs` on any running server
 
 - Base URL: `https://docblendai.onrender.com` (or `http://127.0.0.1:8000` locally).
 - JSON in and out, except `/upload` (multipart form) and the file / image endpoints.
-- Header `X-Session-Id: <8-64 letters, digits, dashes>` on every call from the website and the
-  app. Required when `PUBLIC_DEMO=true` (otherwise `400 Missing session`).
-- Errors come back as `{"detail": "human-readable message"}`; both clients show `detail` to the user.
+- Header `X-Session-Id: <8-64 letters, digits, dashes>` on every call from the website.
+  Required when `PUBLIC_DEMO=true` (otherwise `400 Missing session`).
+- Errors come back as `{"detail": "human-readable message"}`; the website shows `detail` to the user.
 
 ### Endpoints at a glance
 
-| Method | Path | Purpose | Website | App |
-|---|---|---|---|---|
-| GET | `/health` | Server is up (`{"status": "ok"}`); Render's health check | – | – |
-| POST | `/session/heartbeat` | Start / keep a session alive, count the visitor | ✔ | ✔ |
-| POST | `/session/{session_id}/leave` | Tab closing: delete its documents after a short grace period | ✔ | – |
-| GET | `/stats` | Visitors and questions today and in total | ✔ | ✔ |
-| POST | `/upload` | Upload and process a document | ✔ | ✔ |
-| GET | `/documents` | This session's documents, oldest first | ✔ | ✔ |
-| DELETE | `/documents/{doc_id}` | Remove a document everywhere | ✔ | ✔ |
-| GET | `/documents/{doc_id}/file` | The original file, for the preview | ✔ | ✔ (images) |
-| GET | `/documents/{doc_id}/pages` | Per-page text, recognised lines, layout regions, blocks, layout text, image links | ✔ | ✔ |
-| GET | `/documents/{doc_id}/export?format=` | Download: `layout` (spacing kept), `md`, `csv` (tables), `json`, `txt` | ✔ | ✔ |
-| GET | `/documents/{doc_id}/pages/{n}/image` | Page image that recognition read | ✔ | ✔ |
-| GET | `/documents/{doc_id}/pictures/{name}` | A picture found in a typed document | ✔ | – |
-| POST | `/ask` | Ask a question → answer + reliability label | ✔ | ✔ |
-| GET | `/answer/{answer_id}` | Fetch a stored answer | – | – |
-| GET | `/answer/{answer_id}/sources` | Passages behind an answer, with scores | ✔ | ✔ |
-
-### How the clients call the API
-
-| Client | Where the calls are | How |
+| Method | Path | Purpose |
 |---|---|---|
-| Website | `app/static/index.html` → `api()` helper | `fetch(path, options)` with `X-Session-Id` added to every call; heartbeat every ~75 s; `navigator.sendBeacon` to `/leave` on `pagehide` |
-| Android app | `mobile/src/api.ts` | `request()` wraps `fetch` with the server URL (`src/config.ts`), `X-Session-Id`, and timeouts (90 s for the first heartbeat while the free server wakes up, 10 min for uploads) |
+| GET | `/health` | Server is up (`{"status": "ok"}`); Render's health check |
+| POST | `/session/heartbeat` | Start / keep a session alive, count the visitor |
+| POST | `/session/{session_id}/leave` | Tab closing: delete its documents after a short grace period |
+| GET | `/stats` | Visitors and questions today and in total |
+| POST | `/upload` | Upload and process a document |
+| GET | `/documents` | This session's documents, oldest first |
+| DELETE | `/documents/{doc_id}` | Remove a document everywhere |
+| GET | `/documents/{doc_id}/file` | The original file, for the preview |
+| GET | `/documents/{doc_id}/pages` | Per-page text, recognised lines, layout regions, blocks, layout text, image links |
+| GET | `/documents/{doc_id}/export?format=` | Download: `layout` (spacing kept), `md`, `csv` (tables), `json`, `txt` |
+| GET | `/documents/{doc_id}/pages/{n}/image` | Page image that recognition read |
+| GET | `/documents/{doc_id}/pictures/{name}` | A picture found in a typed document |
+| POST | `/ask` | Ask a question → answer + reliability label |
+| GET | `/answer/{answer_id}` | Fetch a stored answer |
+| GET | `/answer/{answer_id}/sources` | Passages behind an answer, with scores |
+
+### How the website calls the API
+
+All calls are in [app/static/index.html](app/static/index.html): the `api()` helper wraps
+`fetch(path, options)` and adds `X-Session-Id` to every call; uploads use `XMLHttpRequest` (for
+upload progress); a heartbeat goes out every ~75 s, and `navigator.sendBeacon` calls `/leave` on
+`pagehide`.
 
 ### Session and counters
 
@@ -510,8 +505,8 @@ Errors: `413` file too large / too many pages (`MAX_UPLOAD_MB`, `MAX_PAGES`), `4
 type, `422` unreadable file or no readable text, `502` Gemini embedding failed, `503` OCR engine
 missing on the server.
 
-Website: `FormData` with the dropped / chosen `File`. App: `FormData` with `{uri, name, type}` from
-the file picker or camera (`uploadDocument` in `src/api.ts`).
+The website sends `FormData` with the dropped or chosen `File` (photos shrunk first, see
+[Fast uploads](#fast-uploads)).
 
 **`GET /documents`** → `[Document, ...]` (oldest first; on the demo only this session's)
 
@@ -542,13 +537,12 @@ and the row. Past answers stay, without this document in their sources.
 box as fractions of the page. `regions` (scans and handwriting): the layout in reading order
 (title, text, table with `rows`, figure, caption, formula, header, footer, reference). `blocks`
 (typed files): paragraphs, tables (`rows`), and pictures (`picture_url`). `layout_text`: the page
-with its spacing and columns kept. Used by the website's viewer (Layout / Lines / Spacing) and by
-the app's Preview tab.
+with its spacing and columns kept. Used by the website's viewer (Layout / Lines / Spacing).
 
 **`GET /documents/{doc_id}/export?format=layout|md|csv|json|txt`** → a file download
 (`Content-Disposition: attachment`), e.g. `notes_layout.txt`, `notes.md`, `notes_tables.csv`
 (or `.zip` with one CSV per table), `notes.json`, `notes.txt`. `404` for `csv` when no table was
-found. Like `/file`, the random `doc_id` is the access key, so the app opens it in the phone's browser.
+found. Like `/file`, the random `doc_id` is the access key, so a plain link works.
 
 ### Questions and answers
 
@@ -564,7 +558,7 @@ found. Like `/file`, the random `doc_id` is the access key, so the app opens it 
 ```
 
 `doc_ids` limits the search to those documents (on the demo: only your own; omitted = all of
-yours). `user_id` is `"web"` from the website and `"android-app"` from the app. Errors: `409`
+yours). `user_id` is `"web"` from the website. Errors: `409`
 repeated `query_id`, `422` no / unknown documents, `502` Gemini failed (e.g. daily quota used up).
 
 **`GET /answer/{answer_id}/sources`**
@@ -643,8 +637,6 @@ If the server refuses to start with "database is out of date", delete `data/docb
 and the contents of `data/chroma_db/` (local dev data), restart, and re-upload.
 
 **Hosting on Render:** see [DEPLOY.md](DEPLOY.md) (one-click Blueprint in `render.yaml`).
-
-**Android app:** a React Native app for the same server is in [mobile/](mobile/README.md) (shareable APK).
 
 ## Running with Docker (for hosting)
 
@@ -741,12 +733,6 @@ app/
 │   └── models.py            ORM: Document, Query, Answer, RetrievalResult, sessions, counters
 └── models/
     └── schemas.py           Pydantic entities shared by all modules
-mobile/                      Android app (React Native); see mobile/README.md
-├── App.tsx                  App shell: header, tabs, heartbeats, back button
-├── src/api.ts               Every server call the app makes
-├── src/config.ts            Server URL
-├── src/screens/             Documents, Preview, Ask screens
-└── DocBlendAI.apk           Signed demo build to share
 scripts/
 └── setup_models.py          One-time setup check + TrOCR model download
 data/
