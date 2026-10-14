@@ -13,7 +13,8 @@ ARG WITH_TROCR=false
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore
 
 # Tesseract for printed scans; libgl/glib for OpenCV (used by RapidOCR).
 RUN apt-get update \
