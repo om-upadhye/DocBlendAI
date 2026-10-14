@@ -35,6 +35,10 @@ RUN grep -vE '^(torch|torchvision|transformers|huggingface_hub|sentencepiece|jiw
        fi \
     && pip install -r requirements-docker.txt
 
+# The table-structure model (SLANet-plus, ~7 MB) normally downloads on first use into the
+# package folder, which the app user cannot write to: fetch it now, as root.
+RUN python -c "from rapid_table import ModelType, RapidTable, RapidTableInput; RapidTable(RapidTableInput(model_type=ModelType.SLANETPLUS, use_ocr=False))"
+
 COPY app ./app
 COPY data/calibration.json ./data/calibration.json
 

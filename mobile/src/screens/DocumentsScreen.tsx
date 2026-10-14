@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {errorCodes, isErrorWithCode, pick, types} from '@react-native-documents/picker';
-import {launchCamera} from 'react-native-image-picker';
+import {Asset, launchCamera, launchImageLibrary} from 'react-native-image-picker';
 
 import {Doc, FormatType, UploadFile, docName, uploadDocument} from '../api';
 import {FORMAT_LABEL, colors} from '../theme';
@@ -17,7 +17,16 @@ type Props = {
   onUploaded: (doc: Doc) => void;
 };
 
-type Job = {id: number; name: string; state: 'busy' | 'ok' | 'err'; message: string; started: number};
+type Job = {
+  id: number;
+  name: string;
+  state: 'busy' | 'ok' | 'err';
+  message: string;
+  started: number;
+  size?: number | null;
+  sent: number; // share of the file uploaded (0-1)
+  readingSince?: number; // when the server started reading it
+};
 
 const HINTS: {value: FormatType | null; label: string}[] = [
   {value: null, label: 'Detect for me'},
@@ -27,6 +36,28 @@ const HINTS: {value: FormatType | null; label: string}[] = [
 ];
 const STEPS = ['Uploading', 'Reading your pages', 'Recognising the text', 'Understanding it', 'Almost done'];
 const PICK_TYPES = [types.pdf, types.images, types.docx, types.pptx, types.plainText];
+// Camera and gallery photos are shrunk by Android before upload: 2600 px on the long side at
+// JPEG quality 80 keeps every letter readable and makes a 4-12 MB phone photo well under 1 MB.
+const PHOTO = {mediaType: 'photo' as const, quality: 0.8 as const, maxWidth: 2600, maxHeight: 2600};
+
+function sizeText(bytes?: number | null): string {
+  if (!bytes) {
+    return '';
+  }
+  return bytes >= 1048576 ? ` of ${(bytes / 1048576).toFixed(1)} MB` : ` of ${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function busyText(j: Job): string {
+  if (!j.readingSince) {
+    return `Uploading ${Math.round(j.sent * 100)}%${sizeText(j.size)}…`;
+  }
+  const secs = Math.round((Date.now() - j.readingSince) / 1000);
+  return `${STEPS[Math.min(STEPS.length - 1, 1 + Math.floor(secs / 6))]}… ${secs}s`;
+}
+
+function photoFile(asset: Asset): UploadFile {
+  return {uri: asset.uri!, name: asset.fileName || `photo-${Date.now()}.jpg`, type: asset.type || 'image/jpeg', size: asset.fileSize};
+}
 
 function kindBadge(name: string): {short: string; color: string} {
   const ext = (name.split('.').pop() || '').toLowerCase();
@@ -66,9 +97,13 @@ export default function DocumentsScreen(props: Props) {
     let last: Doc | null = null;
     for (const file of files) {
       const id = nextId.current++;
-      setJobs(js => [{id, name: file.name, state: 'busy', message: '', started: Date.now()}, ...js]);
+      setJobs(js => [{id, name: file.name, state: 'busy', message: '', started: Date.now(), size: file.size, sent: 0}, ...js]);
       try {
-        const doc = await uploadDocument(file, hint);
+        const doc = await uploadDocument(file, hint, fraction =>
+          setJobs(js =>
+            js.map(j => (j.id === id ? {...j, sent: fraction, readingSince: fraction >= 1 ? j.readingSince || Date.now() : undefined} : j)),
+          ),
+        );
         const pages = `${doc.page_count} page${doc.page_count > 1 ? 's' : ''}`;
         update(id, {state: 'ok', message: `Done! Read as ${FORMAT_LABEL[doc.format_type].toLowerCase()}, ${pages}.`});
         setTimeout(() => setJobs(js => js.filter(j => j.id !== id)), 8000);
@@ -86,7 +121,7 @@ export default function DocumentsScreen(props: Props) {
     try {
       const picked = await pick({type: PICK_TYPES, allowMultiSelection: true});
       await uploadAll(
-        picked.map(f => ({uri: f.uri, name: f.name || 'document', type: f.type || 'application/octet-stream'})),
+        picked.map(f => ({uri: f.uri, name: f.name || 'document', type: f.type || 'application/octet-stream', size: f.size})),
       );
     } catch (e) {
       if (!(isErrorWithCode(e) && e.code === errorCodes.OPERATION_CANCELED)) {
@@ -96,7 +131,7 @@ export default function DocumentsScreen(props: Props) {
   }
 
   async function takePhoto() {
-    const result = await launchCamera({mediaType: 'photo', quality: 0.8, maxWidth: 2600, maxHeight: 2600, saveToPhotos: false});
+    const result = await launchCamera({...PHOTO, saveToPhotos: false});
     if (result.didCancel) {
       return;
     }
@@ -105,7 +140,20 @@ export default function DocumentsScreen(props: Props) {
       Alert.alert('Camera', result.errorMessage || 'Could not take the photo.');
       return;
     }
-    await uploadAll([{uri: asset.uri, name: asset.fileName || `photo-${Date.now()}.jpg`, type: asset.type || 'image/jpeg'}]);
+    await uploadAll([photoFile(asset)]);
+  }
+
+  async function fromGallery() {
+    const result = await launchImageLibrary({...PHOTO, selectionLimit: 0}); // 0 = pick several
+    if (result.didCancel) {
+      return;
+    }
+    const assets = (result.assets || []).filter(a => a.uri);
+    if (result.errorCode || !assets.length) {
+      Alert.alert('Gallery', result.errorMessage || 'Could not open the photo.');
+      return;
+    }
+    await uploadAll(assets.map(photoFile));
   }
 
   const docs = [...props.docs].reverse(); // newest first
@@ -118,7 +166,12 @@ export default function DocumentsScreen(props: Props) {
         <Pressable style={({pressed}) => [styles.uploadBtn, pressed && styles.pressed]} onPress={chooseFiles}>
           <Text style={styles.uploadIcon}>⇪</Text>
           <Text style={styles.uploadTitle}>Choose file</Text>
-          <Text style={styles.uploadSub}>PDF, image, Word, PowerPoint, text</Text>
+          <Text style={styles.uploadSub}>PDF, Word, PowerPoint, text, image</Text>
+        </Pressable>
+        <Pressable style={({pressed}) => [styles.uploadBtn, pressed && styles.pressed]} onPress={fromGallery}>
+          <Text style={styles.uploadIcon}>🖼</Text>
+          <Text style={styles.uploadTitle}>From gallery</Text>
+          <Text style={styles.uploadSub}>photos, shrunk for a fast upload</Text>
         </Pressable>
         <Pressable style={({pressed}) => [styles.uploadBtn, pressed && styles.pressed]} onPress={takePhoto}>
           <Text style={styles.uploadIcon}>📷</Text>
@@ -151,12 +204,7 @@ export default function DocumentsScreen(props: Props) {
           <View style={styles.flex}>
             <Text style={styles.jobName} numberOfLines={1}>{j.name}</Text>
             <Text style={[styles.jobMsg, j.state === 'err' && {color: colors.rose}]}>
-              {j.state === 'busy'
-                ? (() => {
-                    const secs = Math.round((Date.now() - j.started) / 1000);
-                    return `${STEPS[Math.min(STEPS.length - 1, Math.floor(secs / 6))]}… ${secs}s`;
-                  })()
-                : j.message}
+              {j.state === 'busy' ? busyText(j) : j.message}
             </Text>
           </View>
         </View>
@@ -210,7 +258,7 @@ const styles = StyleSheet.create({
   h2: {fontSize: 18, fontWeight: '700', color: colors.text},
   h3: {fontSize: 15, fontWeight: '700', color: colors.text},
   sub: {fontSize: 13, color: colors.muted, marginTop: 2},
-  uploadRow: {flexDirection: 'row', gap: 10, marginTop: 14},
+  uploadRow: {flexDirection: 'row', gap: 8, marginTop: 14},
   uploadBtn: {
     flex: 1,
     alignItems: 'center',
@@ -224,7 +272,7 @@ const styles = StyleSheet.create({
   },
   pressed: {backgroundColor: colors.accentSoft, borderColor: colors.accent},
   uploadIcon: {fontSize: 24, color: colors.accent},
-  uploadTitle: {marginTop: 6, fontSize: 15, fontWeight: '700', color: colors.text},
+  uploadTitle: {marginTop: 6, fontSize: 14, fontWeight: '700', color: colors.text},
   uploadSub: {marginTop: 2, fontSize: 11, color: colors.muted, textAlign: 'center'},
   label: {marginTop: 16, fontSize: 13, color: colors.muted},
   chips: {flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8},

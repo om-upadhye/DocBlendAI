@@ -10,7 +10,20 @@ export type Doc = {doc_id: string; file_path: string; format_type: FormatType; p
 
 export type Line = {text: string; conf: number; box: number[]};
 export type Block = {type: 'paragraph' | 'table' | 'image'; text: string; rows?: string[][] | null};
-export type Page = {page: number; text: string; conf: number; image_url: string | null; lines: Line[]; blocks: Block[]};
+export type RegionType = 'title' | 'text' | 'table' | 'figure' | 'caption' | 'formula' | 'header' | 'footer' | 'reference';
+// A layout region of a scanned / handwritten page, in reading order (server: layout_analysis.py).
+export type Region = {type: RegionType; box: number[]; text: string; conf: number; rows?: string[][] | null};
+export type Page = {
+  page: number;
+  text: string;
+  conf: number;
+  image_url: string | null;
+  lines: Line[];
+  regions?: Region[];
+  blocks: Block[];
+  layout_text?: string; // the page as monospace text, spacing and columns kept
+};
+export type ExportFormat = 'layout' | 'md' | 'csv' | 'json' | 'txt';
 
 export type Answer = {answer_id: string; answer_text: string; reliability_label: Reliability};
 export type Source = {
@@ -23,7 +36,7 @@ export type Source = {
   combined_score: number;
 };
 export type Stats = {visitors_today: number; questions_today: number; visitors_total: number; questions_total: number};
-export type UploadFile = {uri: string; name: string; type: string};
+export type UploadFile = {uri: string; name: string; type: string; size?: number | null};
 
 function uuid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -104,13 +117,43 @@ export const listDocuments = () => request<Doc[]>('/documents');
 export const deleteDocument = (docId: string) => request<void>(`/documents/${docId}`, {method: 'DELETE'});
 export const getPages = (docId: string) => request<Page[]>(`/documents/${docId}/pages`);
 
-export function uploadDocument(file: UploadFile, formatHint: FormatType | null): Promise<Doc> {
+// Download link (the doc_id is the access key, so the phone's browser can open it directly).
+export const exportUrl = (docId: string, format: ExportFormat) => absoluteUrl(`/documents/${docId}/export?format=${format}`);
+
+// XMLHttpRequest, not fetch: only XHR reports upload progress. onProgress gets 0..1 while the
+// file is sent; after that the server reads it (OCR of scans can take minutes on a small server).
+export function uploadDocument(
+  file: UploadFile,
+  formatHint: FormatType | null,
+  onProgress?: (fraction: number) => void,
+): Promise<Doc> {
   const form = new FormData();
-  form.append('file', file as any); // React Native sends {uri, name, type} as a file part
+  form.append('file', {uri: file.uri, name: file.name, type: file.type} as any); // React Native sends it as a file part
   if (formatHint) {
     form.append('format_hint', formatHint);
   }
-  return request<Doc>('/upload', {method: 'POST', body: form}, 10 * 60000); // OCR of scans can take minutes
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', absoluteUrl('/upload'));
+    xhr.setRequestHeader('X-Session-Id', SESSION_ID);
+    xhr.timeout = 10 * 60000;
+    xhr.upload.onprogress = e => e.lengthComputable && onProgress?.(e.loaded / e.total);
+    xhr.upload.onload = () => onProgress?.(1);
+    xhr.onload = () => {
+      let body: any = {};
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(body as Doc);
+      } else {
+        reject(new Error(typeof body.detail === 'string' ? body.detail : `Something went wrong (${xhr.status})`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Can't reach the server. Check your internet connection and try again."));
+    xhr.ontimeout = () => reject(new Error('The server took too long. Try a shorter document.'));
+    xhr.send(form);
+  });
 }
 
 export async function ask(question: string, docIds: string[]): Promise<{answer: Answer; sources: Source[]}> {

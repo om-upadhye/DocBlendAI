@@ -293,6 +293,22 @@
     .pager button, .v-close { min-height: 40px; min-width: 44px; }
     .p-act { padding: 8px 14px; }
   }
+  /* ---------- layout regions, spacing view, downloads ---------- */
+  .v-modes { display: inline-flex; background: var(--soft); border-radius: 999px; padding: 3px; }
+  .v-modes button { border: 0; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 999px; }
+  .v-modes button[aria-selected="true"] { background: var(--panel); color: var(--accent); box-shadow: var(--shadow); }
+  select.dl { font: inherit; font-size: 13px; color: var(--accent); background: var(--accent-soft); border: 0; border-radius: 999px; padding: 5px 10px; font-weight: 600; cursor: pointer; }
+  .r-title { color: #3b5bdb; } .r-text { color: #5c6b8a; } .r-table { color: var(--violet); } .r-figure { color: var(--amber); }
+  .r-caption { color: #c2410c; } .r-formula { color: var(--mint); } .r-header, .r-footer, .r-reference { color: #8a94a8; }
+  .v-lines li[class^="r-"] .kind { background: color-mix(in srgb, currentColor 14%, #fff); }
+  .v-lines .rtable { overflow-x: auto; margin-top: 6px; }
+  .v-lines .rtable table { border-collapse: collapse; font-size: 12px; color: var(--text); }
+  .v-lines .rtable td { border: 1px solid var(--line); padding: 3px 7px; vertical-align: top; min-width: 56px; max-width: 190px; }
+  .v-lines .rtable tr:first-child td { font-weight: 600; background: var(--soft); }
+  .v-lines li.rbox { flex-direction: column; align-items: stretch; gap: 4px; }
+  .v-lines li.rbox .ltext { -webkit-line-clamp: 4; }
+  pre.v-mono { margin: 0 auto; max-width: none; background: #fff; border-radius: 6px; box-shadow: var(--shadow); padding: 20px 24px;
+               font: 13px/1.45 Consolas, "Cascadia Mono", "Courier New", monospace; white-space: pre; overflow: auto; color: var(--text); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
@@ -354,6 +370,7 @@
       <h2 id="p-title">Preview</h2>
       <button type="button" class="p-act" id="p-read" hidden>What I read</button>
       <a class="p-act" id="p-open" target="_blank" rel="noopener" hidden>Open ↗</a>
+      <select class="dl" id="p-dl" aria-label="Download what was read" hidden></select>
       <button type="button" class="p-act phone-only" id="p-ask">Ask about it →</button>
     </div>
     <div class="p-body" id="p-body">
@@ -407,7 +424,9 @@
   <div class="v-shell">
     <div class="v-head">
       <h3 id="v-title">Document</h3>
+      <div class="v-modes" id="v-modes" role="tablist" aria-label="How to show the page"></div>
       <div class="legend" id="v-legend"></div>
+      <select class="dl" id="v-dl" aria-label="Download what was read"></select>
       <div class="pager">
         <button type="button" id="v-prev" aria-label="Previous page">‹</button>
         <span id="v-pageinfo"></span>
@@ -609,7 +628,7 @@ function markViewing() {
 function clearPreview() {
   preview.id = null;
   document.getElementById("p-title").textContent = "Preview";
-  document.getElementById("p-open").hidden = document.getElementById("p-read").hidden = true;
+  document.getElementById("p-open").hidden = document.getElementById("p-read").hidden = document.getElementById("p-dl").hidden = true;
   document.getElementById("p-body").replaceChildren(el("div", { class: "p-empty" }, "Your document will show here while you ask questions about it."));
 }
 
@@ -624,6 +643,9 @@ async function showPreview(doc) {
   const open = document.getElementById("p-open");
   open.href = fileUrl;
   open.hidden = !(ext === "pdf" || ext === "txt" || BROWSER_IMAGES.includes(ext));
+  const dl = document.getElementById("p-dl");
+  fillDownloads(dl, doc.doc_id);
+  dl.hidden = false;
   const read = document.getElementById("p-read");
   read.hidden = false;
   read.onclick = () => openViewer(doc);
@@ -696,28 +718,88 @@ async function uploadAll(files) {
   }
 }
 
+// Photos are shrunk in the browser before upload: phone photos are often 3-12 MB, while
+// 2600 px on the long side at JPEG quality 85 keeps every letter readable for OCR
+// (the server resizes pages to about A4 anyway). PDFs and Office files are sent as they are.
+const SHRINK_TYPES = ["image/jpeg", "image/png", "image/webp", "image/bmp"];
+const MAX_SIDE = 2600;
+const SHRINK_ABOVE = 700 * 1024;
+
+async function shrinkPhoto(file) {
+  if (!SHRINK_TYPES.includes(file.type) || file.size < SHRINK_ABOVE || !window.createImageBitmap) return file;
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });  // phone photos upright
+    const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";  // transparent PNGs: white paper, not black
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    if (!blob || blob.size >= file.size) return file;  // never send something bigger
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch { return file; }  // the server can still read the original
+}
+
+function sizeText(bytes) { return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`; }
+
+// fetch() cannot report upload progress; XMLHttpRequest can.
+function uploadWithProgress(form, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/upload");
+    xhr.setRequestHeader("X-Session-Id", SESSION_ID);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.upload.onload = () => onProgress(1);
+    xhr.onload = () => {
+      let body = {};
+      try { body = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+      else reject(new Error(typeof body.detail === "string" ? body.detail : `Something went wrong (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new Error("Upload failed. Check your internet connection and try again."));
+    xhr.send(form);
+  });
+}
+
 async function uploadOne(file) {
   const jobs = document.getElementById("progress");
-  const msg = el("span", { class: "jmsg" }, STEPS[0] + "…");
+  const msg = el("span", { class: "jmsg" }, "Preparing…");
   const job = el("div", { class: "job" }, el("span", { class: "spinner", "aria-hidden": "true" }),
     el("div", { style: "min-width:0" }, el("div", { class: "jname" }, file.name), msg));
   jobs.prepend(job);
-  const started = Date.now();
-  let step = 0;
-  const timer = setInterval(() => {  // friendly progress; handwriting takes a few seconds per page
-    const secs = Math.round((Date.now() - started) / 1000);
-    if (secs > 2 + step * 5 && step < STEPS.length - 1) step++;
+
+  let note = "";
+  const original = file.size;
+  if (SHRINK_TYPES.includes(file.type) && original >= SHRINK_ABOVE) msg.textContent = "Shrinking photo…";
+  file = await shrinkPhoto(file);
+  if (file.size < original) note = ` Photo shrunk ${sizeText(original)} → ${sizeText(file.size)}.`;
+
+  let uploaded = 0, readingSince = null, step = 1;
+  const show = () => {
+    if (readingSince === null) { msg.textContent = `Uploading ${Math.round(uploaded * 100)}% of ${sizeText(file.size)}…`; return; }
+    const secs = Math.round((Date.now() - readingSince) / 1000);  // server side: reading takes a few seconds per page
+    if (secs > 3 + (step - 1) * 5 && step < STEPS.length - 1) step++;
     msg.textContent = `${STEPS[step]}… ${secs}s`;
-  }, 500);
+  };
+  const timer = setInterval(show, 500);
+  show();
   const form = new FormData();
   form.append("file", file);
   const hint = document.getElementById("hint").value;
   if (hint) form.append("format_hint", hint);
   try {
-    const doc = await api("/upload", { method: "POST", body: form });
+    const doc = await uploadWithProgress(form, (fraction) => {
+      uploaded = fraction;
+      if (fraction >= 1 && readingSince === null) readingSince = Date.now();
+      show();
+    });
     job.className = "job ok";
     job.firstChild.replaceWith(svgIcon('<path d="M20 6 9 17l-5-5"/>'));
-    msg.textContent = `Done! Read as ${FORMAT[doc.format_type].toLowerCase()}, ${doc.page_count} page${doc.page_count > 1 ? "s" : ""}.`;
+    msg.textContent = `Done! Read as ${FORMAT[doc.format_type].toLowerCase()}, ${doc.page_count} page${doc.page_count > 1 ? "s" : ""}.${note}`;
     setTimeout(() => job.remove(), 8000);
     return doc.doc_id;
   } catch (err) {
@@ -795,9 +877,49 @@ questionBox.addEventListener("keydown", (e) => {
 });
 questionBox.addEventListener("input", () => { questionBox.style.height = "auto"; questionBox.style.height = Math.min(questionBox.scrollHeight, 140) + "px"; });
 
+// ---------- downloads (layout text keeps spacing; csv = tables) ----------
+const DOWNLOADS = [["layout", "Layout text (spacing kept)"], ["md", "Markdown"], ["csv", "Tables (CSV)"], ["json", "JSON (everything)"], ["txt", "Plain text"]];
+function fillDownloads(select, docId) {
+  select.replaceChildren(el("option", { value: "" }, "Download ▾"), ...DOWNLOADS.map(([v, label]) => el("option", { value: v }, label)));
+  select.onchange = async () => {
+    const format = select.value;
+    select.value = "";
+    if (!format) return;
+    try {
+      const resp = await fetch(`/documents/${docId}/export?format=${format}`, { headers: { "X-Session-Id": SESSION_ID } });
+      if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail || `Download failed (${resp.status})`);
+      const name = (resp.headers.get("content-disposition") || "").match(/filename="([^"]+)"/)?.[1] || `document.${format}`;
+      const url = URL.createObjectURL(await resp.blob());
+      const link = el("a", { href: url, download: name });
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (err) { alert(err.message); }
+  };
+}
+
 // ---------- page viewer ----------
 const SVG_NS = "http://www.w3.org/2000/svg";
-const viewer = { pages: [], index: 0, doc: null };
+const viewer = { pages: [], index: 0, doc: null, mode: "layout" };
+// Layout regions found on scanned / handwritten pages (layout_analysis.py).
+const REGION = {
+  title: ["Title", "titles"], text: ["Text", "text blocks"], table: ["Table", "tables"], figure: ["Figure", "figures"],
+  caption: ["Caption", "captions"], formula: ["Formula", "formulas"], header: ["Header", "headers"],
+  footer: ["Footer", "footers"], reference: ["Reference", "references"],
+};
+const MODES = { lines: "Lines", layout: "Layout", spacing: "Spacing" };
+
+function renderModes() {
+  const scans = viewer.doc.format_type !== "typed";
+  const hasRegions = viewer.pages.some((p) => p.regions && p.regions.length);
+  const modes = scans ? (hasRegions ? ["layout", "lines", "spacing"] : ["lines", "spacing"]) : ["layout", "spacing"];
+  if (!modes.includes(viewer.mode)) viewer.mode = modes[0];
+  const box = document.getElementById("v-modes");
+  box.replaceChildren(...modes.map((m) => {
+    const b = el("button", { type: "button", role: "tab", "aria-selected": String(m === viewer.mode) }, MODES[m]);
+    b.addEventListener("click", () => { viewer.mode = m; renderModes(); renderPage(); });
+    return b;
+  }));
+}
 function confClass(c) { return c >= 0.85 ? "c-high" : c >= 0.6 ? "c-mid" : "c-low"; }  // same cut-offs as the labels
 const LEGEND_CONF = [["c-high", "clear"], ["c-mid", "partly legible"], ["c-low", "hard to read"]];
 const BLOCK = { paragraph: ["Paragraph", "paragraphs"], table: ["Table", "tables"], image: ["Picture", "pictures"] };
@@ -833,9 +955,13 @@ async function openViewer(doc) {
   document.getElementById("v-title").textContent = `${docLabel(doc.doc_id)} · ${FORMAT[doc.format_type]}`;
   document.getElementById("v-body").replaceChildren(el("p", { class: "v-empty" }, "Opening your document…"));
   document.getElementById("v-pageinfo").textContent = "";
+  document.getElementById("v-modes").replaceChildren();
+  fillDownloads(document.getElementById("v-dl"), doc.doc_id);
   document.getElementById("viewer").showModal();
   try {
     viewer.pages = await api(`/documents/${doc.doc_id}/pages`);
+    viewer.mode = "layout";
+    renderModes();
     renderPage();
   } catch (err) {
     document.getElementById("v-body").replaceChildren(el("p", { class: "v-empty" }, err.message));
@@ -849,7 +975,9 @@ function renderPage() {
   document.getElementById("v-prev").disabled = viewer.index === 0;
   document.getElementById("v-next").disabled = viewer.index === viewer.pages.length - 1;
 
+  if (viewer.mode === "spacing") { renderSpacing(page); return; }
   if (viewer.doc.format_type === "typed") { renderBlocks(page); return; }
+  if (viewer.mode === "layout" && page.regions && page.regions.length && page.image_url) { renderRegions(page); return; }
   setLegend(LEGEND_CONF, "How clearly each line was read");
   if (!page.image_url) {  // Word / PowerPoint / text: just the text
     body.style.gridTemplateColumns = "1fr";
@@ -873,6 +1001,55 @@ function renderPage() {
     svg.append(rect);
     const item = el("li", { class: cls }, el("span", { class: "conf" }, `${Math.round(line.conf * 100)}%`), el("span", { class: "ltext" }, line.text));
     list.append(item);
+    linkHover(rect, item);
+  });
+  const img = el("img", { src: page.image_url, alt: `Page ${page.page} of ${docLabel(viewer.doc.doc_id)}` });
+  body.replaceChildren(el("div", { class: "v-page" }, el("div", { class: "v-frame" }, img, svg)), side);
+}
+
+// ---------- spacing: the page as monospace text, indentation and columns kept ----------
+function renderSpacing(page) {
+  const body = document.getElementById("v-body");
+  setLegend([], "");
+  document.getElementById("v-pageinfo").textContent = `Page ${page.page} of ${viewer.pages.length} · spacing and columns kept`;
+  body.style.gridTemplateColumns = "1fr";
+  body.replaceChildren(el("div", { class: "v-page" }, el("pre", { class: "v-mono" }, page.layout_text || page.text || "(this page has no text)")));
+}
+
+// ---------- scanned / handwritten pages: layout regions ----------
+function miniTable(rows) {
+  const table = el("table");
+  rows.forEach((row) => table.append(el("tr", {}, ...row.map((cell) => el("td", {}, cell)))));
+  return el("div", { class: "rtable" }, table);
+}
+
+function renderRegions(page) {
+  const body = document.getElementById("v-body");
+  const types = Object.keys(REGION).filter((t) => page.regions.some((r) => r.type === t));
+  setLegend(types.map((t) => [`r-${t}`, REGION[t][0].toLowerCase()]), "What each outlined part of the page is");
+  const counts = types.map((t) => [t, page.regions.filter((r) => r.type === t).length]);
+  document.getElementById("v-pageinfo").textContent = `Page ${page.page} of ${viewer.pages.length} · ` +
+    counts.map(([t, n]) => `${n} ${n === 1 ? REGION[t][0].toLowerCase() : REGION[t][1]}`).join(", ");
+  body.style.gridTemplateColumns = "";
+
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 1 1");
+  svg.setAttribute("preserveAspectRatio", "none");
+  const list = el("ol", { class: "v-lines", "aria-label": "Parts of this page, in reading order" });
+  const side = el("div", { class: "v-side" },
+    el("h4", {}, `Layout · ${page.regions.length} parts in reading order (${touchScreen ? "tap" : "hover"} to find them)`), list);
+
+  page.regions.forEach((r, i) => {
+    const cls = `r-${r.type}`;
+    const name = REGION[r.type] ? REGION[r.type][0] : r.type;
+    const conf = r.type === "figure" && !r.text ? "" : ` · ${Math.round(r.conf * 100)}%`;
+    const head = el("div", {}, el("span", { class: "kind" }, `${i + 1}. ${name}`), el("span", { class: "conf-note" }, conf));
+    const item = el("li", { class: `${cls} rbox` }, head);
+    if (r.type === "table" && r.rows && r.rows.length) item.append(miniTable(r.rows));
+    else if (r.text) item.append(el("span", { class: "ltext" }, r.text));
+    list.append(item);
+    const rect = boxRect(r.box, cls, `${name}: ${(r.text || "").slice(0, 200)}`);
+    svg.append(rect);
     linkHover(rect, item);
   });
   const img = el("img", { src: page.image_url, alt: `Page ${page.page} of ${docLabel(viewer.doc.doc_id)}` });

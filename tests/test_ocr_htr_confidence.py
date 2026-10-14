@@ -343,7 +343,7 @@ def test_upload_format_hint_skips_detection(client, pdf_file, fake_ocr, fake_htr
 
 
 def test_upload_without_tesseract_is_503_and_cleans_up(client, pdf_file, tmp_path, monkeypatch) -> None:
-    def _missing(image):
+    def _missing(image, lines_out=None):
         raise ocr_extractor.OCRUnavailableError("Tesseract is not installed")
 
     monkeypatch.setattr(ocr_extractor, "ocr_image", _missing)
@@ -384,3 +384,19 @@ def test_otsu_threshold_separates_ink_from_paper() -> None:
     gray = np.array([[20] * 10 + [240] * 90], dtype=np.uint8)
     t = htr_extractor._otsu_threshold(gray)
     assert 20 <= t < 240
+
+
+def test_detection_read_is_reused_so_a_short_scan_is_read_once(client, pdf_file, fake_ocr) -> None:
+    fake_ocr.text, fake_ocr.conf = "Printed lecture notes about recognition.", 0.95
+    resp = _upload(client, pdf_file(["", ""]))  # 2 pages: detection's sample covers them all
+
+    assert resp.status_code == 201
+    assert fake_ocr.calls == 2  # once per page, not detection + extraction
+    pages = client.get(f"/documents/{resp.json()['doc_id']}/pages").json()
+    assert [p["lines"][0]["text"] for p in pages] == ["Printed lecture notes about recognition."] * 2
+
+
+def test_longer_scans_are_read_in_full_after_detection(client, pdf_file, fake_ocr) -> None:
+    fake_ocr.text, fake_ocr.conf = "Printed lecture notes about recognition.", 0.95
+    assert _upload(client, pdf_file(["", "", ""])).status_code == 201
+    assert fake_ocr.calls == 2 + 3  # 2-page detection sample, then all 3 pages

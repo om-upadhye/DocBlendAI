@@ -12,8 +12,8 @@ The Gemini key stays on the server; the app contains no secrets.
 
 | Tab | What it does |
 |---|---|
-| Documents | Choose files or take a photo, pick the kind of writing, tick which documents to ask about, view or remove them |
-| Preview | The document's pages, or **What I read**: each recognised line with its confidence (scans/handwriting) or paragraphs/tables (typed) |
+| Documents | Choose files, pick photos from the gallery, or take a photo (photos are shrunk to 2600 px before upload, with live upload progress), pick the kind of writing, tick which documents to ask about, view or remove them |
+| Preview | **Pages**; **Layout**: titles, text, tables (as grids), figures in reading order; **Lines**: each recognised line with its confidence; **Spacing**: the page as text with its columns kept; **Download**: layout text, Markdown, tables (CSV), JSON |
 | Ask | Chat with reliability labels, suggested questions, and "Where I found this" with match and legibility scores |
 
 The header shows visitors and questions today (same counters as the website). Documents are
@@ -30,8 +30,8 @@ flowchart TD
 
     Tabs --> D["DocumentsScreen.tsx"]
     D -- "Choose file<br/>(@react-native-documents/picker)" --> U["uploadDocument()<br/>POST /upload"]
-    D -- "Take photo<br/>(react-native-image-picker)" --> U
-    U --> P["PreviewScreen.tsx<br/>getPages() - GET /documents/{id}/pages<br/>page images: GET /documents/{id}/pages/{n}/image<br/>photos: GET /documents/{id}/file"]
+    D -- "Take photo / From gallery<br/>(react-native-image-picker,<br/>shrunk to 2600 px)" --> U
+    U --> P["PreviewScreen.tsx: Pages / Layout / Lines / Spacing<br/>getPages() - GET /documents/{id}/pages<br/>page images: GET /documents/{id}/pages/{n}/image<br/>Download: GET /documents/{id}/export"]
     P -- "Ask about it" --> A["AskScreen.tsx<br/>ask() - POST /ask<br/>then GET /answer/{id}/sources"]
     D -- Remove --> Del["deleteDocument()<br/>DELETE /documents/{id}"]
 
@@ -45,7 +45,7 @@ flowchart TD
 | `src/api.ts` | Every call to the server (one function per endpoint), session and visitor ids |
 | `src/config.ts` | `SERVER_URL` and the `user_id` sent with questions |
 | `src/screens/DocumentsScreen.tsx` | File picker, camera, kind-of-writing chips, document list |
-| `src/screens/PreviewScreen.tsx` | Pages, and "What I read" with per-line confidence |
+| `src/screens/PreviewScreen.tsx` | Pages / Layout / Lines / Spacing views and the Download menu |
 | `src/screens/AskScreen.tsx` | Chat, reliability labels, suggestions, "Where I found this" |
 | `src/theme.ts` | Colours, reliability label wording, confidence colours |
 
@@ -61,10 +61,11 @@ message the screens show. The full API (shared with the website) is described in
 | `heartbeat()` | `POST /session/heartbeat` `{session_id, visitor_id}` | `App.tsx` on start, every ~75 s, on returning to the app | 90 s first time, 30 s after |
 | `getStats()` | `GET /stats` | header counters | 60 s |
 | `listDocuments()` | `GET /documents` | Documents tab | 60 s |
-| `uploadDocument(file, hint)` | `POST /upload` (multipart `file`, `format_hint`) | Choose file / Take photo | 10 min (OCR of scans is slow) |
+| `uploadDocument(file, hint, onProgress)` | `POST /upload` (multipart `file`, `format_hint`; XMLHttpRequest for progress) | Choose file / From gallery / Take photo | 10 min (OCR of scans is slow) |
 | `deleteDocument(id)` | `DELETE /documents/{id}` | Remove button | 60 s |
 | `getPages(id)` | `GET /documents/{id}/pages` | Preview tab | 60 s |
 | `absoluteUrl(image_url)` | `GET /documents/{id}/pages/{n}/image`, `GET /documents/{id}/file` | `<Image>` in Preview | – |
+| `exportUrl(id, format)` | `GET /documents/{id}/export?format=layout\|md\|csv\|json\|txt` | Download (opens the phone's browser) | – |
 | `ask(question, docIds)` | `POST /ask`, then `GET /answer/{id}/sources` | Ask tab | 2 min |
 
 Examples from the code:

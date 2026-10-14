@@ -15,8 +15,8 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from pdfplumber.utils.exceptions import PdfminerException
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -32,9 +32,11 @@ from app.modules import (
     confidence_capture,
     content_type,
     embedder,
+    exporters,
     file_types,
     format_detection,
     htr_extractor,
+    layout_analysis,
     ocr_extractor,
     page_store,
     vector_store,
@@ -85,6 +87,8 @@ def upload_document(
         # Any failure (rejection, service error, or bug) leaves no stray upload behind.
         path.unlink(missing_ok=True)
         raise
+    finally:
+        format_detection.forget(str(path))
     logger.info("Uploaded %s as %s", file.filename, doc_id)
     return document
 
@@ -158,10 +162,20 @@ class BlockView(BaseModel):
     picture_url: str | None = Field(None, description="The picture itself, if the browser can show it (pictures only)")
 
 
+class RegionView(BaseModel):
+    """A layout region of a scanned or handwritten page (API-only; see layout_analysis.py)."""
+
+    type: str = Field(description="title, text, table, figure, caption, formula, header, footer, or reference")
+    box: list[float] = Field(description="[x0, y0, x1, y1] as fractions of the page image size")
+    text: str
+    conf: float = Field(description="Calibrated recognition confidence of the region's text (0-1)")
+    rows: list[list[str]] | None = Field(None, description="Table cells, row by row (tables only)")
+
+
 class PageView(BaseModel):
     """What recognition read on one page (API-only, for the document viewer).
 
-    Scanned and handwritten pages list recognised lines; typed pages list blocks.
+    Scanned and handwritten pages list recognised lines and layout regions; typed pages list blocks.
     """
 
     page: int
@@ -169,7 +183,9 @@ class PageView(BaseModel):
     conf: float
     image_url: str | None
     lines: list[LineView]
+    regions: list[RegionView] = []
     blocks: list[BlockView]
+    layout_text: str = Field("", description="The page as monospace text with its spacing and columns kept")
 
 
 @router.get("/documents/{doc_id}/pages", response_model=list[PageView])
@@ -190,6 +206,8 @@ def document_pages(doc_id: str, db: Session = Depends(get_db)) -> list[PageView]
             conf=p["conf"],
             image_url=f"/documents/{doc_id}/pages/{p['page']}/image" if p["image"] else None,
             lines=p["lines"],
+            regions=p.get("regions", []),
+            layout_text=p.get("layout_text") or p["text"],
             blocks=[
                 BlockView(
                     **{k: v for k, v in b.items() if k != "picture"},
@@ -219,6 +237,57 @@ def document_picture(doc_id: str, name: str) -> FileResponse:
     return FileResponse(path, media_type="image/png")
 
 
+# Download file name after the upload's own name, e.g. notes_layout.txt, notes.md.
+_EXPORT_FILES = {"txt": "{}.txt", "layout": "{}_layout.txt", "md": "{}.md", "json": "{}.json"}
+_EXPORT_TYPES = {
+    "txt": "text/plain; charset=utf-8", "layout": "text/plain; charset=utf-8",
+    "md": "text/markdown; charset=utf-8", "json": "application/json",
+}
+
+
+@router.get("/documents/{doc_id}/export")
+def export_document(
+    doc_id: str,
+    format: str = Query("layout", pattern="^(txt|layout|md|csv|json)$", description=", ".join(exporters.FORMATS)),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Download what was read: txt, layout (spacing kept), md, csv (tables), or json.
+
+    Like /file, the random doc_id is the access key, so links work in a browser or the app.
+    """
+    row = db.get(DocumentORM, doc_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    if row.format_type == FormatType.TYPED:
+        page_store.ensure_blocks(doc_id, row.file_path)
+    pages = page_store.load(doc_id)
+    if pages is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No page view saved for this document; upload it again")
+    stem = Path(row.file_path).stem.removeprefix(f"{doc_id}_") or "document"
+    if format == "csv":
+        try:
+            content, media_type, ext = exporters.to_csv(pages)
+        except exporters.ExportError as e:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+        filename = f"{stem}_tables.{ext}"
+    else:
+        if format == "md":
+            content = exporters.to_md(pages, stem)
+        elif format == "json":
+            # The server's file path is internal: the JSON names the document instead.
+            info = Document.model_validate(row).model_dump(mode="json", exclude={"file_path"})
+            content = exporters.to_json(pages, {**info, "name": Path(row.file_path).name.removeprefix(f"{doc_id}_")})
+        else:
+            content = exporters.to_layout(pages) if format == "layout" else exporters.to_txt(pages)
+        media_type = _EXPORT_TYPES[format]
+        filename = _EXPORT_FILES[format].format(stem)
+    return Response(
+        content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "X-Content-Type-Options": "nosniff"},
+    )
+
+
 def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session) -> Document:
     """Detect -> extract -> chunk -> calibrate -> label -> embed -> store. Raises HTTPException on expected failures."""
     unreadable = f"File is not a readable {path.suffix} file (damaged, or not what its extension says)"
@@ -243,7 +312,20 @@ def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session
     except (ocr_extractor.OCRUnavailableError, htr_extractor.HTRUnavailableError) as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
 
-    chunks = chunker.chunk_pages(doc_id, extracted)
+    # Scanned / handwritten pages: regions, tables, reading order, spacing (layout_analysis.py).
+    # The page text is rebuilt in reading order, and tables become their own chunks.
+    blocks = None
+    if layout:
+        blocks = []
+        for i, record in enumerate(layout):
+            analysis = layout_analysis.analyze_page(record["image"], record["lines"])
+            record["regions"], record["layout_text"] = analysis["regions"], analysis["layout_text"]
+            record["lines"] = analysis["lines"]  # table text re-read with a table-friendly engine
+            if analysis["text"] and i < len(extracted):
+                extracted[i] = (analysis["text"], extracted[i][1])
+            blocks.append(layout_analysis.qa_blocks(analysis["regions"]))
+
+    chunks = chunker.chunk_pages(doc_id, extracted, blocks=blocks)
     if not chunks:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No readable text found in this file")
     chunks = confidence_capture.apply_calibration(chunks, format_type)
@@ -269,6 +351,10 @@ def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session
     for record in layout:
         for line in record["lines"]:
             line["conf"] = round(calibrate(line["conf"]), 4)
+            for word in line.get("words", []):
+                word["conf"] = round(calibrate(word["conf"]), 4)
+        for region in record.get("regions", []):
+            region["conf"] = round(calibrate(region["conf"]), 4)
     page_store.save(
         doc_id, str(path), [(t, calibrate(c)) for t, c in extracted], layout, typed=format_type is FormatType.TYPED
     )

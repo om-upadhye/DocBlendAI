@@ -22,6 +22,12 @@ from app.modules.pdf_render import image_page_count
 # Pages sampled to tell printed scans from handwriting (keeps detection fast on long PDFs).
 OCR_SAMPLE_PAGES = 2
 
+# Pages detection already read, per file and engine: (results, layout records). extract()
+# reuses them when they cover the whole document (photos, 1-2 page scans), so those pages
+# are read once instead of twice. Entries are removed when used; the dict stays tiny.
+_sample_reads: dict[tuple[str, FormatType], tuple[list[tuple[str, float]], list[dict]]] = {}
+MAX_SAMPLE_READS = 16
+
 # A page counts as "has a text layer" above this many extracted characters
 # (filters out stray page numbers / headers on scanned pages).
 MIN_TEXT_CHARS_PER_PAGE = 25
@@ -86,16 +92,30 @@ def detect_format(file_path: str) -> FormatType:
     if kind_of(file_path) in TEXT_KINDS or has_text_layer(file_path):
         return FormatType.TYPED
 
-    ocr_conf = confidence_capture.calibrate(
-        _mean_conf(ocr_extractor.ocr_file(file_path, max_pages=OCR_SAMPLE_PAGES)), FormatType.SCANNED
-    )
+    ocr_layout: list[dict] = []
+    ocr_pages = ocr_extractor.ocr_file(file_path, max_pages=OCR_SAMPLE_PAGES, layout=ocr_layout)
+    _remember(file_path, FormatType.SCANNED, ocr_pages, ocr_layout)
+    ocr_conf = confidence_capture.calibrate(_mean_conf(ocr_pages), FormatType.SCANNED)
     if ocr_conf >= settings.scanned_min_ocr_conf:
         return FormatType.SCANNED
 
-    htr_conf = confidence_capture.calibrate(
-        _mean_conf(handwriting_file(file_path, max_pages=OCR_SAMPLE_PAGES)), FormatType.HANDWRITTEN
-    )
+    htr_layout: list[dict] = []
+    htr_pages = handwriting_file(file_path, max_pages=OCR_SAMPLE_PAGES, layout=htr_layout)
+    _remember(file_path, FormatType.HANDWRITTEN, htr_pages, htr_layout)
+    htr_conf = confidence_capture.calibrate(_mean_conf(htr_pages), FormatType.HANDWRITTEN)
     return FormatType.HANDWRITTEN if htr_conf > ocr_conf else FormatType.SCANNED
+
+
+def _remember(file_path: str, fmt: FormatType, pages: list[tuple[str, float]], layout: list[dict]) -> None:
+    while len(_sample_reads) >= MAX_SAMPLE_READS:  # forget the oldest (uploads that failed midway)
+        _sample_reads.pop(next(iter(_sample_reads)))
+    _sample_reads[(file_path, fmt)] = (pages, layout)
+
+
+def forget(file_path: str) -> None:
+    """Drop what detection read for this file (it is being deleted or was fully extracted)."""
+    for fmt in (FormatType.SCANNED, FormatType.HANDWRITTEN):
+        _sample_reads.pop((file_path, fmt), None)
 
 
 def handwriting_file(file_path: str, max_pages: int | None = None, layout: list | None = None) -> list[tuple[str, float]]:
@@ -124,9 +144,18 @@ def extract(document: Document, layout: list | None = None) -> list[tuple[str, f
 
     If layout is a list, scanned and handwritten pages append {"image", "lines"}
     records (page image + line boxes) for the document viewer.
+
+    Pages detect_format already read with the chosen engine are reused when they cover
+    the whole document, so a photo or a one- or two-page scan is read only once.
     """
     if document.format_type is FormatType.TYPED:
         return text_parser.parse(document.file_path)
+    sample = _sample_reads.get((document.file_path, document.format_type))
+    forget(document.file_path)
+    if sample and len(sample[0]) >= document.page_count:  # detection already read every page
+        if layout is not None:
+            layout.extend(sample[1])
+        return sample[0]
     if document.format_type is FormatType.SCANNED:
         return ocr_extractor.ocr_file(document.file_path, layout=layout)
     return handwriting_file(document.file_path, layout=layout)

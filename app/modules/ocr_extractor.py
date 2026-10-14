@@ -48,8 +48,9 @@ def _tesseract_cmd(configured: str) -> str:
 def ocr_image(image: Image.Image, lines_out: list | None = None) -> tuple[str, float]:
     """OCR one page image. Returns (text, raw_conf); a page with no words gives ("", 0.0).
 
-    If lines_out is a list, one {"text", "conf", "box"} dict per text line is appended,
-    box = [x0, y0, x1, y1] as fractions of the image size (for the document viewer).
+    If lines_out is a list, one {"text", "conf", "box", "words"} dict per text line is appended,
+    box = [x0, y0, x1, y1] as fractions of the image size (for the document viewer); words are
+    the line's words, each with its own text, conf and box.
     """
     pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd(settings.tesseract_cmd)
     try:
@@ -67,6 +68,8 @@ def ocr_image(image: Image.Image, lines_out: list | None = None) -> tuple[str, f
     lines: dict[tuple[int, int, int], list[str]] = {}
     # Per line: [weighted conf, chars, x0, y0, x1, y1] for the viewer's boxes.
     stats: dict[tuple[int, int, int], list[float]] = {}
+    # Per line: its words with boxes, for table cells and spacing (layout_analysis.py).
+    word_boxes: dict[tuple[int, int, int], list[tuple]] = {}
     weighted, chars = 0.0, 0
     n = len(data["text"])
     boxes = zip(*(data.get(k, [0] * n) for k in ("left", "top", "width", "height")))
@@ -80,6 +83,7 @@ def ocr_image(image: Image.Image, lines_out: list | None = None) -> tuple[str, f
         lines.setdefault(key, []).append(word)
         weighted += float(conf) / 100 * len(word)
         chars += len(word)
+        word_boxes.setdefault(key, []).append((word, float(conf) / 100, left, top, left + width, top + height))
         s = stats.setdefault(key, [0.0, 0, left, top, left + width, top + height])
         s[0] += float(conf) / 100 * len(word)
         s[1] += len(word)
@@ -101,7 +105,11 @@ def ocr_image(image: Image.Image, lines_out: list | None = None) -> tuple[str, f
         if lines_out is not None:
             s = stats[key]
             box = [s[2] / w, s[3] / h, s[4] / w, s[5] / h]
-            lines_out.append({"text": " ".join(words), "conf": round(s[0] / s[1], 4), "box": [round(v, 5) for v in box]})
+            line_words = [
+                {"text": t, "conf": round(c, 4), "box": [round(x0 / w, 5), round(y0 / h, 5), round(x1 / w, 5), round(y1 / h, 5)]}
+                for t, c, x0, y0, x1, y1 in word_boxes[key]
+            ]
+            lines_out.append({"text": " ".join(words), "conf": round(s[0] / s[1], 4), "box": [round(v, 5) for v in box], "words": line_words})
     return "\n".join(parts), weighted / chars
 
 
