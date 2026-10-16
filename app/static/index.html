@@ -45,6 +45,9 @@
          grid-template-columns: 340px minmax(0, 1.1fr) minmax(0, 1fr); grid-template-areas: "docs preview chat"; }
   #docs-card { grid-area: docs; } #preview-card { grid-area: preview; } #chat-card { grid-area: chat; }
   @media (max-width: 1240px) { main { grid-template-columns: 340px minmax(0, 1fr); grid-template-areas: "docs chat" "preview preview"; } }
+  /* preview closed with its X: the chat takes the freed space */
+  body.preview-closed main { grid-template-columns: 340px minmax(0, 1fr); grid-template-areas: "docs chat"; }
+  body.preview-closed #preview-card { display: none; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
   .card-head { padding: 16px 18px 6px; }
   .card-head h2 { margin: 0; font-size: 16px; }
@@ -216,6 +219,8 @@
   .p-act { font-size: 13px; color: var(--accent); background: var(--accent-soft); border: 0; border-radius: 999px;
            padding: 4px 12px; text-decoration: none; font-weight: 600; }
   .p-act:hover { background: #dde4fd; }
+  .chat-head { display: flex; align-items: center; gap: 10px; }
+  .chat-head h2 { flex: 1; }
   .p-body { height: 72vh; margin: 0 12px 12px; border-radius: 12px; background: var(--bg); overflow: auto; border: 1px solid var(--line); }
   .p-body iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
   .p-body > img { display: block; max-width: 100%; margin: 0 auto; }
@@ -267,6 +272,7 @@
     .send { height: 44px; padding: 0 14px; }
     .p-head { padding: 12px 14px 8px; gap: 8px; }
     .p-head h2 { flex-basis: 100%; }
+    #p-close, #p-show { display: none; }  /* phones switch sections with the bottom tabs instead */
     #preview-card .p-body { flex: 1; height: auto; min-height: 0; margin: 0 8px 8px; }
     .phone-only { display: inline-block; }
     .tabbar { display: flex; flex: none; gap: 4px; background: var(--panel); border-top: 1px solid var(--line);
@@ -372,6 +378,9 @@
       <a class="p-act" id="p-open" target="_blank" rel="noopener" hidden>Open ↗</a>
       <select class="dl" id="p-dl" aria-label="Download what was read" hidden></select>
       <button type="button" class="p-act phone-only" id="p-ask">Ask about it →</button>
+      <button type="button" class="iconbtn" id="p-close" title="Close preview" aria-label="Close preview">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
     </div>
     <div class="p-body" id="p-body">
       <div class="p-empty">Your document will show here while you ask questions about it.</div>
@@ -380,8 +389,10 @@
 
   <!-- ======== chat ======== -->
   <section class="card chat-card" id="chat-card" aria-labelledby="ask-title">
-    <div class="card-head">
+    <div class="card-head chat-head">
       <h2 id="ask-title">Ask about your notes</h2>
+      <button type="button" class="p-act" id="chat-clear" hidden>Clear chat</button>
+      <button type="button" class="p-act" id="p-show" hidden>Show preview</button>
     </div>
     <div class="scope" id="scope" aria-live="polite"></div>
     <div class="chat" id="chat" aria-live="polite">
@@ -593,8 +604,8 @@ async function loadDocs(newDocId) {
       item.classList.toggle("on", box.checked);
       saveSelection(); renderScope();
     });
-    const view = el("button", { type: "button", class: "iconbtn", title: "See what I read on each page", "aria-label": `View ${docLabel(d.doc_id)}` }, svgIcon(ICON_EYE));
-    view.addEventListener("click", () => openViewer(d));
+    const view = el("button", { type: "button", class: "iconbtn", title: "Show in preview", "aria-label": `Preview ${docLabel(d.doc_id)}` }, svgIcon(ICON_EYE));
+    view.addEventListener("click", () => { showPreview(d); setPreviewOpen(true); if (phone.matches) setView("preview"); });
     const del = el("button", { type: "button", class: "iconbtn del", title: "Remove", "aria-label": `Remove ${docLabel(d.doc_id)}` }, svgIcon(ICON_TRASH));
     del.addEventListener("click", () => deleteDoc(d.doc_id));
     item.append(
@@ -606,7 +617,7 @@ async function loadDocs(newDocId) {
           `${d.page_count} page${d.page_count > 1 ? "s" : ""}`)),
       el("div", { class: "dacts" }, view, del),
       el("label", { class: "askon" }, box, "Ask about this"));
-    item.querySelector(".dmeta").addEventListener("click", () => { showPreview(d); if (phone.matches) setView("preview"); });
+    item.querySelector(".dmeta").addEventListener("click", () => { showPreview(d); setPreviewOpen(true); if (phone.matches) setView("preview"); });
     list.append(item);
   }
   renderScope();
@@ -624,6 +635,14 @@ const touchScreen = matchMedia("(pointer: coarse)").matches;  // phone browsers 
 function markViewing() {
   document.querySelectorAll("#docs .doc").forEach((li) => li.classList.toggle("viewing", li.dataset.id === preview.id));
 }
+
+// The X closes the preview so the chat gets its width; "Show preview" (or clicking a document) brings it back.
+function setPreviewOpen(open) {
+  document.body.classList.toggle("preview-closed", !open);
+  document.getElementById("p-show").hidden = open;
+}
+document.getElementById("p-close").addEventListener("click", () => setPreviewOpen(false));
+document.getElementById("p-show").addEventListener("click", () => setPreviewOpen(true));
 
 function clearPreview() {
   preview.id = null;
@@ -812,9 +831,11 @@ async function uploadOne(file) {
 
 // ---------- chat ----------
 const chat = document.getElementById("chat");
+const welcome = document.getElementById("welcome");
 function addMessage(me, ...content) {
-  document.getElementById("welcome")?.remove();
+  welcome.remove();
   document.getElementById("suggest").replaceChildren();
+  document.getElementById("chat-clear").hidden = false;
   const avatar = me ? el("div", { class: "avatar", "aria-hidden": "true" }, "You") : el("div", { class: "avatar", "aria-hidden": "true" }, svgIcon(BOT));
   const bubble = el("div", { class: "bubble" }, ...content);
   const msg = el("div", { class: `msg${me ? " me" : ""}` }, avatar, bubble);
@@ -827,9 +848,44 @@ function sourceView(s) {
   const meter = (label, v) => el("span", { class: "meter" }, label,
     Object.assign(el("i"), { innerHTML: `<b style="width:${Math.round(v * 100)}%"></b>` }), v.toFixed(2));
   return el("div", { class: "source" },
-    el("div", { class: "meta" }, el("b", {}, docLabel(s.doc_id)), s.content_type, meter("match", s.similarity), meter("legibility", s.confidence)),
+    el("div", { class: "meta" }, el("b", {}, s.name), s.content_type, meter("match", s.similarity), meter("readability", s.confidence)),
     el("pre", {}, s.text));
 }
+
+// An answered question as saved in the history: names are kept so it still reads right after the documents are gone.
+function renderAnswer(bubble, item) {
+  const r = REL[item.label];
+  bubble.replaceChildren(
+    el("span", { class: `rel ${item.label}` }, r.icon, " ", r.title),
+    el("div", { class: "text" }, item.text),
+    el("div", { class: "why" }, r.why),
+    el("div", { class: "from" }, `Looked in: ${item.from.join(", ")}`));
+  if (item.sources.length) {
+    const details = el("details", { class: "src" }, el("summary", {}, `Where I found this (${item.sources.length})`));
+    item.sources.forEach((s) => details.append(sourceView(s)));
+    bubble.append(details);
+  }
+}
+
+// ---------- chat history: kept in this tab (sessionStorage) so a page refresh doesn't wipe it ----------
+const HISTORY_KEY = "chatHistory", HISTORY_MAX = 50;  // the last 50 answers, oldest dropped first
+function loadHistory() { try { return JSON.parse(sessionStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; } }
+function saveToHistory(item) {
+  try { sessionStorage.setItem(HISTORY_KEY, JSON.stringify([...loadHistory(), item].slice(-HISTORY_MAX))); } catch {}
+}
+function restoreHistory() {
+  for (const item of loadHistory()) {
+    if (!REL[item.label] || !Array.isArray(item.sources) || !Array.isArray(item.from)) continue;  // not a saved answer
+    addMessage(true, item.question);
+    renderAnswer(addMessage(false), item);
+  }
+}
+document.getElementById("chat-clear").addEventListener("click", () => {
+  try { sessionStorage.removeItem(HISTORY_KEY); } catch {}
+  chat.replaceChildren(welcome);
+  document.getElementById("chat-clear").hidden = true;
+  renderSuggestions();
+});
 
 async function ask(question) {
   const btn = document.getElementById("ask-btn");
@@ -844,17 +900,12 @@ async function ask(question) {
       body: JSON.stringify({ query_id: crypto.randomUUID(), question_text: question, user_id: "web", doc_ids: docIds }),
     });
     const sources = await api(`/answer/${answer.answer_id}/sources`);
-    const r = REL[answer.reliability_label];
-    thinking.replaceChildren(
-      el("span", { class: `rel ${answer.reliability_label}` }, r.icon, " ", r.title),
-      el("div", { class: "text" }, answer.answer_text),
-      el("div", { class: "why" }, r.why),
-      el("div", { class: "from" }, `Looked in: ${docIds.map(docLabel).join(", ")}`));
-    if (sources.length) {
-      const details = el("details", { class: "src" }, el("summary", {}, `Where I found this (${sources.length})`));
-      sources.forEach((s) => details.append(sourceView(s)));
-      thinking.append(details);
-    }
+    const item = {
+      question, label: answer.reliability_label, text: answer.answer_text, from: docIds.map(docLabel),
+      sources: sources.map((s) => ({ name: docLabel(s.doc_id), content_type: s.content_type, similarity: s.similarity, confidence: s.confidence, text: s.text })),
+    };
+    renderAnswer(thinking, item);
+    saveToHistory(item);
   } catch (err) {
     thinking.replaceChildren(el("span", { class: "rel Unreadable" }, "!", " Sorry"), el("div", { class: "text" }, err.message));
   } finally {
@@ -1130,6 +1181,7 @@ document.getElementById("v-close").addEventListener("click", () => document.getE
   setInterval(heartbeat, ((info && info.heartbeat_seconds) || 60) * 1000);
   loadStats();
   setInterval(loadStats, 60000);
+  restoreHistory();
   try { await loadDocs(); }
   catch (err) { document.getElementById("progress").append(el("div", { class: "job err" }, el("span", { class: "jmsg" }, err.message))); }
 })();
