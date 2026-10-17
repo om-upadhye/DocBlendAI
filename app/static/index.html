@@ -44,7 +44,12 @@
   main { max-width: 1600px; margin: 0 auto; padding: 20px 24px 32px; display: grid; gap: 20px; align-items: start;
          grid-template-columns: 340px minmax(0, 1.1fr) minmax(0, 1fr); grid-template-areas: "docs preview chat"; }
   #docs-card { grid-area: docs; } #preview-card { grid-area: preview; } #chat-card { grid-area: chat; }
-  @media (max-width: 1240px) { main { grid-template-columns: 340px minmax(0, 1fr); grid-template-areas: "docs chat" "preview preview"; } }
+  main { transition: grid-template-columns .38s cubic-bezier(.2, .9, .25, 1); }
+  /* Preview closed (✕): its column goes away and the chat takes the space. */
+  main.pv-off { grid-template-columns: 340px minmax(0, 1fr); grid-template-areas: "docs chat"; }
+  main.pv-off #preview-card { display: none; }
+  @media (max-width: 1240px) { main { grid-template-columns: 340px minmax(0, 1fr); grid-template-areas: "docs chat" "preview preview"; }
+                               main.pv-off { grid-template-areas: "docs chat"; } }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
   .card-head { padding: 16px 18px 6px; }
   .card-head h2 { margin: 0; font-size: 16px; }
@@ -216,6 +221,9 @@
   .p-act { font-size: 13px; color: var(--accent); background: var(--accent-soft); border: 0; border-radius: 999px;
            padding: 4px 12px; text-decoration: none; font-weight: 600; }
   .p-act:hover { background: #dde4fd; }
+  .p-x { flex: none; width: 32px; height: 32px; border: 0; border-radius: 999px; background: var(--soft); color: var(--muted);
+         font-size: 15px; display: grid; place-items: center; cursor: pointer; transition: background .15s, color .15s, transform .15s; }
+  .p-x:hover { background: var(--rose-soft); color: var(--rose); transform: rotate(90deg); }
   .p-body { height: 72vh; margin: 0 12px 12px; border-radius: 12px; background: var(--bg); overflow: auto; border: 1px solid var(--line); }
   .p-body > img { display: block; max-width: 100%; margin: 0 auto; }
   .p-pages { display: grid; gap: 18px; padding: 16px; }
@@ -309,6 +317,18 @@
   .v-lines li.rbox .ltext { -webkit-line-clamp: 4; }
   pre.v-mono { margin: 0 auto; max-width: none; background: #fff; border-radius: 6px; box-shadow: var(--shadow); padding: 20px 24px;
                font: 13px/1.45 Consolas, "Cascadia Mono", "Courier New", monospace; white-space: pre; overflow: auto; color: var(--text); }
+  /* ---------- closing / reopening the preview, chat growing into its space ---------- */
+  #preview-card.leaving { animation: pv-leave .22s ease-in both; pointer-events: none; }
+  @keyframes pv-leave { to { opacity: 0; transform: scale(.96) translateY(6px); } }
+  #preview-card.arriving { animation: pv-arrive .32s cubic-bezier(.2, .9, .25, 1) both; }
+  @keyframes pv-arrive { from { opacity: 0; transform: scale(.97) translateY(8px); } to { opacity: 1; transform: none; } }
+  #chat-card.growing { animation: chat-grow .36s cubic-bezier(.2, .9, .25, 1) both; }
+  @keyframes chat-grow { from { opacity: .55; transform: scale(.985); } to { opacity: 1; transform: none; } }
+  .chat-card .card-head { display: flex; align-items: center; gap: 10px; }
+  .chat-card .card-head h2 { flex: 1; }
+  #show-preview { display: none; }
+  main.pv-off #show-preview { display: inline-flex; animation: pv-arrive .3s ease both; }
+
   /* ---------- floating document window ---------- */
   .p-page img, .p-page .p-sheet { cursor: zoom-in; transition: transform .18s ease, box-shadow .18s ease; }
   .p-page:hover img, .p-page:hover .p-sheet { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(31, 42, 68, .16); }
@@ -320,7 +340,22 @@
   dialog#docwin::backdrop { background: rgba(20, 28, 48, .42); backdrop-filter: blur(4px); animation: dw-fade .3s ease both; }
   dialog#docwin.closing::backdrop { animation: dw-fade .2s ease reverse both; }
   @keyframes dw-in { from { opacity: 0; transform: translateY(24px) scale(.94); } to { opacity: 1; transform: none; } }
-  @keyframes dw-out { to { opacity: 0; transform: translateY(16px) scale(.96); } }
+  /* ✕ minimizes: the window shrinks into the chip at the bottom-right corner, and grows back from it */
+  @keyframes dw-out { to { opacity: 0; transform: translate(34vw, 38vh) scale(.12); } }
+  dialog#docwin[open].restoring { animation: dw-restore .34s cubic-bezier(.2, .9, .25, 1) both; }
+  @keyframes dw-restore { from { opacity: 0; transform: translate(34vw, 38vh) scale(.12); } to { opacity: 1; transform: none; } }
+  .dw-chip { position: fixed; right: 18px; bottom: 18px; z-index: 50; display: flex; align-items: center; gap: 2px;
+             background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px;
+             box-shadow: 0 12px 32px rgba(20, 28, 48, .22); animation: chip-in .32s cubic-bezier(.2, .9, .25, 1) both; }
+  .dw-chip[hidden] { display: none; }
+  @keyframes chip-in { from { opacity: 0; transform: translateY(14px) scale(.9); } to { opacity: 1; transform: none; } }
+  .dw-chip button { border: 0; background: transparent; font: inherit; cursor: pointer; border-radius: 999px; }
+  .dw-chip .chip-open { display: flex; align-items: center; gap: 8px; padding: 7px 12px; color: var(--text); max-width: min(360px, 70vw); }
+  .dw-chip .chip-open:hover { background: var(--accent-soft); }
+  .dw-chip .chip-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dw-chip .chip-page { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .dw-chip .chip-x { width: 30px; height: 30px; color: var(--muted); display: grid; place-items: center; }
+  .dw-chip .chip-x:hover { background: var(--rose-soft); color: var(--rose); }
   @keyframes dw-fade { from { opacity: 0; } to { opacity: 1; } }
   .dw-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 18px; background: var(--panel);
              border-bottom: 1px solid var(--line); cursor: grab; user-select: none; touch-action: none; }
@@ -348,13 +383,16 @@
     dialog#docwin { width: 100vw; height: 100vh; height: 100dvh; border-radius: 0; resize: none; translate: none !important; }
     dialog#docwin[open] { animation-name: dw-up; }
     dialog#docwin[open].closing { animation: dw-down .22s ease-in both; }
+    dialog#docwin[open].restoring { animation-name: dw-up; }
+    .dw-chip { right: 12px; bottom: calc(80px + env(safe-area-inset-bottom)); }
     @keyframes dw-up { from { opacity: .6; transform: translateY(40%); } to { opacity: 1; transform: none; } }
     @keyframes dw-down { to { opacity: 0; transform: translateY(30%); } }
     .dw-head { cursor: default; padding-top: max(10px, env(safe-area-inset-top)); }
     .dw-body { padding: 12px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    dialog#docwin[open], dialog#docwin.closing, dialog#docwin::backdrop, .dw-pages figure { animation: none !important; }
+    dialog#docwin[open], dialog#docwin.closing, dialog#docwin::backdrop, .dw-pages figure, .dw-chip, #preview-card, #chat-card, #show-preview { animation: none !important; }
+    main { transition: none; }
     .dw-pages figure, .p-page img, .p-page .p-sheet { transition: none; }
   }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
@@ -414,6 +452,7 @@
       <button type="button" class="p-act" id="p-open" hidden>Open ⤢</button>
       <button type="button" class="p-act" id="p-read" hidden>What I read</button>
       <select class="dl" id="p-dl" aria-label="Download what was read" hidden></select>
+      <button type="button" class="p-x" id="p-close" aria-label="Close the preview" title="Close preview">✕</button>
       <button type="button" class="p-act phone-only" id="p-ask">Ask about it →</button>
     </div>
     <div class="p-body" id="p-body">
@@ -425,6 +464,7 @@
   <section class="card chat-card" id="chat-card" aria-labelledby="ask-title">
     <div class="card-head">
       <h2 id="ask-title">Let's talk about your notes</h2>
+      <button type="button" class="p-act" id="show-preview" title="Show the preview again">📄 Show preview</button>
     </div>
     <div class="scope" id="scope" aria-live="polite"></div>
     <div class="chat" id="chat" aria-live="polite">
@@ -461,6 +501,14 @@
   </button>
 </nav>
 
+<!-- ======== minimized floating window ======== -->
+<div class="dw-chip" id="dw-chip" role="group" aria-label="Minimized document" hidden>
+  <button type="button" class="chip-open" id="dw-chip-open" title="Open again">
+    <span aria-hidden="true">📄</span><span class="chip-name" id="dw-chip-name"></span><span class="chip-page" id="dw-chip-page"></span>
+  </button>
+  <button type="button" class="chip-x" id="dw-chip-x" aria-label="Close the document window">✕</button>
+</div>
+
 <!-- ======== floating document window ======== -->
 <dialog id="docwin" aria-labelledby="dw-title">
   <div class="dw-head" id="dw-head">
@@ -472,7 +520,7 @@
       <button type="button" id="dw-in" aria-label="Zoom in">+</button>
       <button type="button" class="fit" id="dw-fit">Fit</button>
     </div>
-    <button type="button" class="dw-close" id="dw-close" aria-label="Close">✕</button>
+    <button type="button" class="dw-close" id="dw-close" aria-label="Minimize" title="Minimize">✕</button>
   </div>
   <div class="dw-body" id="dw-body"><div class="dw-pages" id="dw-pages"></div></div>
 </dialog>
@@ -615,6 +663,7 @@ async function loadDocs(newDocId) {
   if (!selected.size && docs.length) selected = new Set([docs[docs.length - 1].doc_id]);
   saveSelection();
   const want = newDocId || (ids.has(preview.id) ? preview.id : docs.length ? docs[docs.length - 1].doc_id : null);
+  if (docwin.saved && !ids.has(docwin.saved.docId)) hideChip();  // its document was removed
   document.getElementById("doc-count").textContent = docs.length ? `${docs.length} document${docs.length > 1 ? "s" : ""}` : "";
   document.getElementById("tab-count").textContent = docs.length || "";
 
@@ -673,11 +722,13 @@ function clearPreview() {
   preview.pages = null;
   document.getElementById("p-title").textContent = "Preview";
   document.getElementById("p-open").hidden = document.getElementById("p-read").hidden = document.getElementById("p-dl").hidden = true;
+  markViewing();  // the panel stays closed if the user closed it
   document.getElementById("p-body").replaceChildren(el("div", { class: "p-empty" }, "Pick a document and I'll keep it open here while we talk about it."));
 }
 
 async function showPreview(doc) {
   preview.id = doc.doc_id;
+  restorePreview();
   markViewing();
   const name = docLabel(doc.doc_id);
   const fileUrl = `/documents/${doc.doc_id}/file`;
@@ -729,8 +780,38 @@ function pageFigure(p, word, total, name) {
     : el("figure", { class: "p-page" }, el("div", { class: "p-sheet" }, el("pre", {}, p.text || "(nothing written on this page)")), caption);
 }
 
+// ✕ in the preview header closes the preview panel and the chat grows into its space. It comes back
+// when a document is opened (library, upload) or with "Show preview". On phones ✕ goes to Documents.
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+function replay(node, cls) {  // restart a one-off CSS animation
+  node.classList.remove(cls);
+  void node.offsetWidth;
+  node.classList.add(cls);
+  node.addEventListener("animationend", () => node.classList.remove(cls), { once: true });
+}
+function closePreview() {
+  const main = document.querySelector("main"), card = document.getElementById("preview-card");
+  if (main.classList.contains("pv-off")) return;
+  if (phone.matches) { main.classList.add("pv-off"); setView("docs"); return; }
+  const done = () => { card.classList.remove("leaving"); main.classList.add("pv-off"); replay(document.getElementById("chat-card"), "growing"); };
+  if (reducedMotion()) { done(); return; }
+  card.classList.add("leaving");
+  setTimeout(done, 220);
+}
+function restorePreview() {
+  const main = document.querySelector("main");
+  if (!main.classList.contains("pv-off")) return;
+  main.classList.remove("pv-off");
+  if (!phone.matches && !reducedMotion()) replay(document.getElementById("preview-card"), "arriving");
+}
+document.getElementById("p-close").addEventListener("click", closePreview);
+document.getElementById("show-preview").addEventListener("click", () => {
+  restorePreview();
+  if (phone.matches) setView("preview");  // phones show one screen at a time
+});
+
 // ---------- floating document window: smooth open / close, zoom, page indicator, drag ----------
-const docwin = { el: document.getElementById("docwin"), zoom: 100, observer: null };
+const docwin = { el: document.getElementById("docwin"), zoom: 100, observer: null, state: null, saved: null };
 const ZOOM_STEPS = [50, 67, 80, 100, 125, 150, 200, 250];
 
 function setZoom(z) {
@@ -745,50 +826,91 @@ function stepZoom(dir) {
 
 function openDocWindow(index) {
   if (!preview.pages || !preview.pages.length) return;
-  const name = docLabel(preview.id);
-  const pages = preview.pages;
+  const state = { docId: preview.id, name: docLabel(preview.id), pages: preview.pages, word: preview.word || "Page" };
+  showDocWindow(state, { index, zoom: 100 });
+}
+
+// Builds the window for a document. at: {index} to start at a page, or {scrollTop, zoom} to restore.
+function showDocWindow(state, at) {
+  hideChip();
+  docwin.state = state;
+  const { name, pages, word } = state;
   document.getElementById("dw-title").textContent = name;
   const list = document.getElementById("dw-pages");
-  const figures = pages.map((p) => pageFigure(p, preview.word || "Page", pages.length, name));
+  const figures = pages.map((p) => pageFigure(p, word, pages.length, name));
   list.replaceChildren(...figures);
-  setZoom(100);
+  setZoom(at.zoom || 100);
   const win = docwin.el;
   win.classList.remove("closing");
-  win.style.translate = "";
+  win.classList.toggle("restoring", at.scrollTop !== undefined);
+  if (at.scrollTop === undefined) win.style.translate = "";
   win.showModal();
+  setTimeout(() => win.classList.remove("restoring"), 400);
   const pageLabel = document.getElementById("dw-page");
-  pageLabel.textContent = `${preview.word || "Page"} ${index + 1} of ${pages.length}`;
+  pageLabel.textContent = at.label || `${word} ${(at.index || 0) + 1} of ${pages.length}`;
   docwin.observer?.disconnect();
   docwin.observer = new IntersectionObserver((entries) => {  // live "Page n of N" while scrolling
     const seen = entries.filter((e) => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-    if (seen) pageLabel.textContent = `${preview.word || "Page"} ${figures.indexOf(seen.target) + 1} of ${pages.length}`;
+    if (seen) pageLabel.textContent = `${word} ${figures.indexOf(seen.target) + 1} of ${pages.length}`;
   }, { root: document.getElementById("dw-body"), threshold: [0.25, 0.5, 0.75] });
   figures.forEach((f) => docwin.observer.observe(f));
   const body = document.getElementById("dw-body");
   body.style.scrollBehavior = "auto";
   body.scrollTop = 0;
-  if (index > 0) requestAnimationFrame(() => { figures[index].scrollIntoView({ block: "start" }); body.style.scrollBehavior = ""; });
-  else body.style.scrollBehavior = "";
+  requestAnimationFrame(() => {
+    if (at.scrollTop !== undefined) body.scrollTop = at.scrollTop;  // restored: same place as before
+    else if (at.index > 0) figures[at.index].scrollIntoView({ block: "start" });
+    body.style.scrollBehavior = "";
+  });
 }
 
-function closeDocWindow() {
+// ✕ / Esc / click outside: the window shrinks into a chip at the bottom-right; the chip restores it.
+function minimizeDocWindow() {
   const win = docwin.el;
   if (!win.open || win.classList.contains("closing")) return;
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { win.close(); return; }
+  docwin.saved = {
+    ...docwin.state,
+    scrollTop: document.getElementById("dw-body").scrollTop,
+    zoom: docwin.zoom,
+    label: document.getElementById("dw-page").textContent,
+  };
+  const finish = () => {
+    if (!win.classList.contains("closing") && win.open === false) return;
+    win.classList.remove("closing");
+    win.close();
+    showChip();
+  };
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { finish(); return; }
   win.classList.add("closing");
   let done = false;
-  const finish = () => { if (done) return; done = true; win.classList.remove("closing"); win.close(); };
-  const onEnd = (e) => { if (e.target === win) { win.removeEventListener("animationend", onEnd); finish(); } };  // not a page's fade-in
+  const once = () => { if (!done) { done = true; finish(); } };
+  const onEnd = (e) => { if (e.target === win) { win.removeEventListener("animationend", onEnd); once(); } };  // not a page's fade-in
   win.addEventListener("animationend", onEnd);
-  setTimeout(finish, 400);  // always closes, even if no animation ran
+  setTimeout(once, 400);  // always finishes, even if no animation ran
 }
 
-document.getElementById("dw-close").addEventListener("click", closeDocWindow);
+function showChip() {
+  if (!docwin.saved) return;
+  document.getElementById("dw-chip-name").textContent = docwin.saved.name;
+  document.getElementById("dw-chip-page").textContent = `· ${docwin.saved.label}`;
+  document.getElementById("dw-chip").hidden = false;
+}
+function hideChip() {
+  document.getElementById("dw-chip").hidden = true;
+  docwin.saved = null;
+}
+document.getElementById("dw-chip-open").addEventListener("click", () => {
+  const saved = docwin.saved;
+  if (saved) showDocWindow(saved, { scrollTop: saved.scrollTop, zoom: saved.zoom, label: saved.label });
+});
+document.getElementById("dw-chip-x").addEventListener("click", hideChip);
+
+document.getElementById("dw-close").addEventListener("click", minimizeDocWindow);
 document.getElementById("dw-in").addEventListener("click", () => stepZoom(1));
 document.getElementById("dw-out").addEventListener("click", () => stepZoom(-1));
 document.getElementById("dw-fit").addEventListener("click", () => setZoom(100));
-docwin.el.addEventListener("cancel", (e) => { e.preventDefault(); closeDocWindow(); });  // Esc: animate out
-docwin.el.addEventListener("click", (e) => { if (e.target === docwin.el) closeDocWindow(); });  // click outside the window
+docwin.el.addEventListener("cancel", (e) => { e.preventDefault(); minimizeDocWindow(); });  // Esc minimizes too
+docwin.el.addEventListener("click", (e) => { if (e.target === docwin.el) minimizeDocWindow(); });  // so does a click outside
 docwin.el.addEventListener("keydown", (e) => {
   if (e.key === "+" || e.key === "=") { e.preventDefault(); stepZoom(1); }
   if (e.key === "-") { e.preventDefault(); stepZoom(-1); }
@@ -833,6 +955,7 @@ async function deleteDoc(id) {
 const phone = matchMedia("(max-width: 920px), (max-height: 520px) and (pointer: coarse)");
 function setView(view) {
   document.body.dataset.view = view;
+  if (view === "preview") restorePreview();
   document.querySelectorAll(".tabbar button").forEach((b) => b.setAttribute("aria-current", b.dataset.view === view ? "page" : "false"));
   if (view === "chat") { const c = document.getElementById("chat"); c.scrollTop = c.scrollHeight; }
 }
