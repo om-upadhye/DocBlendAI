@@ -19,15 +19,18 @@ Uses from schemas.py: RetrievalResult, ReliabilityLabel.
 
 from app.models.schemas import ReliabilityLabel, RetrievalResult
 
-# Similarity cut-offs for gemini-embedding-001 at 768 dims, set from the step 6
-# evaluation (evaluation/results/report.md): the top chunk behind every correct
-# answer scored 0.66-0.77, every unanswerable or unreadable question 0.50-0.52.
-# Moderate sits midway across that gap. Retune with `run_eval --rescore` as the
-# dataset grows (18 synthetic questions is a small sample).
-CERTAIN_MIN_SIM = 0.65
-MODERATE_MIN_SIM = 0.58
-# Calibrated confidence ~ expected character accuracy (see confidence_capture).
-CERTAIN_MIN_CONF = 0.85
+# Similarity cut-offs for gemini-embedding-001 at 768 dims. The step 6 evaluation
+# (evaluation/results/report.md, 18 synthetic questions) put correct answers at
+# 0.66-0.77 and unanswerable ones at 0.50-0.52, but questions asked on the live
+# site showed real questions scoring 0.65-0.77 whether or not the documents held
+# the answer, so 0.65 made almost every answer Certain. Certain now needs a
+# clearly strong match; the model's own support check (llm_answer) does the rest.
+# Retune with `run_eval --rescore` as the dataset grows.
+CERTAIN_MIN_SIM = 0.70
+MODERATE_MIN_SIM = 0.60
+# Calibrated confidence ~ expected character accuracy (see confidence_capture):
+# Certain allows at most ~1 misread character in 10.
+CERTAIN_MIN_CONF = 0.90
 MODERATE_MIN_CONF = 0.60
 UNREADABLE_MAX_CONF = 0.35
 

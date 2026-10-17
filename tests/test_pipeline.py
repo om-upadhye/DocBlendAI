@@ -380,6 +380,38 @@ def test_module7_not_found_lowers_label_to_uncertain(fake_llm) -> None:
     assert answer.reliability_label is ReliabilityLabel.UNCERTAIN
 
 
+@pytest.mark.parametrize("reply", ["NOT_FAILED NOT_FOUND", "**NOT_FOUND**", "NOT_FOUND."])
+def test_module7_garbled_not_found_is_still_not_found(fake_llm, reply) -> None:
+    fake_llm.reply = reply
+    answer = llm_answer.generate_answer(_query("Capital of Australia?"), [_chunk("FCFS...")], ReliabilityLabel.CERTAIN)
+
+    assert answer.answer_text == llm_answer.NOT_FOUND_ANSWER
+    assert answer.reliability_label is ReliabilityLabel.UNCERTAIN
+
+
+def test_module7_partial_support_caps_label_at_moderate(fake_llm) -> None:
+    fake_llm.reply = f"Probably the convoy effect.\n{llm_answer.SUPPORT_PARTIAL}"
+    answer = llm_answer.generate_answer(_query("Why is FCFS slow?"), [_chunk("FCFS...")], ReliabilityLabel.CERTAIN)
+
+    assert answer.answer_text == "Probably the convoy effect."
+    assert answer.reliability_label is ReliabilityLabel.MODERATE
+
+
+def test_module7_full_support_keeps_label_and_strips_tag(fake_llm) -> None:
+    fake_llm.reply = f"The convoy effect.\n\n**{llm_answer.SUPPORT_FULL}**"
+    answer = llm_answer.generate_answer(_query("Why is FCFS slow?"), [_chunk("FCFS...")], ReliabilityLabel.CERTAIN)
+
+    assert answer.answer_text == "The convoy effect."
+    assert answer.reliability_label is ReliabilityLabel.CERTAIN
+
+
+def test_module7_partial_support_never_raises_a_lower_label(fake_llm) -> None:
+    fake_llm.reply = f"Maybe 24 ms.\n{llm_answer.SUPPORT_PARTIAL}"
+    answer = llm_answer.generate_answer(_query("Burst time?"), [_chunk("P1 2? ms")], ReliabilityLabel.UNREADABLE)
+
+    assert answer.reliability_label is ReliabilityLabel.UNREADABLE
+
+
 def test_module7_no_chunks_skips_llm(fake_llm) -> None:
     answer = llm_answer.generate_answer(_query("Anything?"), [], ReliabilityLabel.UNCERTAIN)
 

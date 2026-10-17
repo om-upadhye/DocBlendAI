@@ -46,4 +46,13 @@ def retrieve(
         )
         scored.append((chunk, result))
     scored.sort(key=lambda pair: pair[1].combined_score, reverse=True)
-    return scored[:top_k]
+    # The same file uploaded twice gives identical chunks; keep the best-ranked copy so
+    # duplicates do not crowd distinct passages out of the top_k sent to the model.
+    seen: set[str] = set()
+    unique = []
+    for chunk, result in scored:
+        key = " ".join(chunk.text.split()).lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append((chunk, result))
+    return unique[:top_k]

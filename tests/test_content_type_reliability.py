@@ -84,11 +84,11 @@ def _stored(chunk_id: str, text: str, conf: float, vector_text: str | None = Non
 
 
 def test_module5_confident_chunk_outranks_slightly_more_similar_illegible_one(chroma, fake_embeddings) -> None:
-    # Same words, but the illegible copy has one extra matching word -> higher similarity.
+    # Same passage, but the illegible copy (one word misread) has one extra matching word -> higher similarity.
     vector_store.add_chunks(
         "doc",
         [
-            _stored("doc:0", "exam dates march", 0.30, vector_text="exam dates march april"),
+            _stored("doc:0", "exam dafes march", 0.30, vector_text="exam dates march april"),
             _stored("doc:1", "exam dates march", 0.95),
         ],
     )
@@ -99,6 +99,19 @@ def test_module5_confident_chunk_outranks_slightly_more_similar_illegible_one(ch
     assert r2.similarity > r1.similarity  # the illegible one matched better...
     assert first.chunk_id == "doc:1"  # ...but the legible one ranks first
     assert r1.combined_score > r2.combined_score
+
+
+def test_module5_drops_duplicate_passages_from_repeat_uploads(chroma, fake_embeddings) -> None:
+    # The same notes uploaded twice, plus one other passage.
+    vector_store.add_chunks("a", [_stored("a:0", "FCFS is non-preemptive.", 1.0)])
+    vector_store.add_chunks("b", [_stored("b:0", "FCFS  is non-preemptive.\n", 1.0)])
+    vector_store.add_chunks("c", [_stored("c:0", "SJF picks the shortest job.", 1.0)])
+
+    hits = retrieval.retrieve(Query(query_id="q", question_text="FCFS non-preemptive", user_id="u"), top_k=3)
+
+    texts = [" ".join(c.text.split()) for c, _ in hits]
+    assert texts.count("FCFS is non-preemptive.") == 1
+    assert "SJF picks the shortest job." in texts
 
 
 def test_module5_retrieve_reranks_a_wider_candidate_pool(chroma, fake_embeddings, monkeypatch) -> None:

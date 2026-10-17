@@ -59,8 +59,8 @@ A useful label is one where **Certain answers are right more often than Moderate
 
 | Label | Answers | Correct |
 |---|---|---|
-| Certain | 14 | 100% |
-| Moderate | 0 | - |
+| Certain | 9 | 100% |
+| Moderate | 5 | 100% |
 | Uncertain | 4 | 50% |
 | Unreadable | 0 | - |
 
@@ -70,18 +70,18 @@ A useful label is one where **Certain answers are right more often than Moderate
 |---|---|---|---|---|---|---|---|
 | dbms_notes | What does second normal form remove? | partial dependencies | Second normal form removes partial dependencies (or partial dependencies on a composite key). | Certain | ✓ | 0.74 | 1.00 |
 | dbms_notes | Which normal form requires every determinant to be a candidate key? | Boyce-Codd normal form | Boyce-Codd normal form | Certain | ✓ | 0.77 | 1.00 |
-| dbms_notes | Why is denormalization sometimes used? | to speed up read-heavy workloads | Denormalization is sometimes used to speed up read-heavy workloads. | Certain | ✓ | 0.68 | 1.00 |
+| dbms_notes | Why is denormalization sometimes used? | to speed up read-heavy workloads | Denormalization is sometimes used to speed up read-heavy workloads. | Moderate | ✓ | 0.68 | 1.00 |
 | os_scheduling | Which scheduling algorithm minimises the average waiting time? | Shortest Job First | Shortest Job First minimises the average waiting time. | Certain | ✓ | 0.73 | 1.00 |
 | os_scheduling | What is the burst time of process P1? | 24 ms | 24 milliseconds | Certain | ✓ | 0.75 | 1.00 |
-| os_scheduling | What happens if the Round Robin time quantum is very small? | too many context switches | It causes too many context switches. | Certain | ✓ | 0.70 | 1.00 |
+| os_scheduling | What happens if the Round Robin time quantum is very small? | too many context switches | It causes too many context switches. | Moderate | ✓ | 0.70 | 1.00 |
 | computer_networks | How many layers does the TCP/IP model have? | four | The TCP/IP model has four layers. | Certain | ✓ | 0.73 | 0.92 |
-| computer_networks | Which port does HTTPS use? | 443 | HTTPS uses port 443. | Certain | ✓ | 0.68 | 0.99 |
-| computer_networks | What does DNS do? | translates domain names into IP addresses | DNS translates domain names into IP addresses. | Certain | ✓ | 0.66 | 0.99 |
+| computer_networks | Which port does HTTPS use? | 443 | HTTPS uses port 443. | Moderate | ✓ | 0.68 | 0.99 |
+| computer_networks | What does DNS do? | translates domain names into IP addresses | DNS translates domain names into IP addresses. | Moderate | ✓ | 0.66 | 0.99 |
 | machine_learning_photocopy | What can L1 regularization do to weights? | drive some weights exactly to zero | I couldn't find the answer to that in the uploaded documents. | Uncertain | ✗ | 0.52 | 1.00 |
 | machine_learning_photocopy | When does early stopping halt training? | when validation loss rises | I couldn't find the answer to that in the uploaded documents. | Uncertain | ✗ | 0.50 | 1.00 |
 | biology_notes | Which organelle builds proteins? | ribosomes | Ribosomes | Certain | ✓ | 0.70 | 0.99 |
 | biology_notes | What is the plant cell wall made of? | cellulose | Cellulose | Certain | ✓ | 0.72 | 0.94 |
-| biology_notes | Where does photosynthesis take place? | chloroplasts | Chloroplasts carry out photosynthesis. | Certain | ✓ | 0.67 | 0.94 |
+| biology_notes | Where does photosynthesis take place? | chloroplasts | Chloroplasts carry out photosynthesis. | Moderate | ✓ | 0.67 | 0.94 |
 | physics_rough_notes | What does Newton's second law state? | force equals mass times acceleration | Newton's second law states that force equals mass times acceleration. | Certain | ✓ | 0.71 | 0.98 |
 | physics_rough_notes | What is the unit of force? | the newton | The unit of force is the newton. | Certain | ✓ | 0.72 | 0.98 |
 | (unanswerable) | Who is the principal of the college? | (not in documents) | I couldn't find the answer to that in the uploaded documents. | Uncertain | ✓ | 0.52 | 0.99 |

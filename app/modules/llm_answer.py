@@ -20,6 +20,10 @@ from app.modules.reliability import worse_of
 NOT_FOUND = "NOT_FOUND"
 NOT_FOUND_ANSWER = "I couldn't find the answer to that in the uploaded documents."
 NO_DOCUMENTS_ANSWER = "No documents have been uploaded yet, so there is nothing to answer from."
+# The model's own judgement of how fully the passages back its answer, given as the
+# last line of the reply and stripped before the user sees it.
+SUPPORT_FULL = "SUPPORT: FULL"
+SUPPORT_PARTIAL = "SUPPORT: PARTIAL"
 
 SYSTEM_INSTRUCTION = (
     "You answer questions about academic documents. Use only the numbered context "
@@ -30,7 +34,15 @@ SYSTEM_INSTRUCTION = (
     "readable, and read an obvious misspelling as the intended word when the "
     "surrounding text makes it unambiguous (e.g. 'At system' next to 'AI planning' "
     "means 'AI system'), but never guess at garbled words or add content that is not "
-    f"there. If the passages do not contain the answer, reply with exactly {NOT_FOUND}."
+    "there. If the passages hold only part of the answer, or let you work it out "
+    "(e.g. they say 'FCFS is non-preemptive' and describe how it runs, and the question "
+    "asks what non-preemptive means), answer with what they do support and say briefly "
+    "what the notes leave out (call them 'the notes', never 'the passages'). Reply with exactly "
+    f"{NOT_FOUND} only when nothing in the passages relates to the question. "
+    f"Otherwise, end your reply with a final line that is exactly {SUPPORT_FULL} if the "
+    "passages state everything in your answer, or exactly "
+    f"{SUPPORT_PARTIAL} if they answer only part of the question, or you had to infer, "
+    "combine scattered hints, or read past recognition errors."
 )
 
 # Passages below this confidence are flagged to the model as possibly misrecognized.
@@ -89,6 +101,28 @@ def _generate(prompt: str) -> str:
     return resp.text.strip()
 
 
+def split_support(reply: str) -> tuple[str, bool]:
+    """Strip the support line from a reply; return (answer text, partially supported?).
+
+    A reply without the line counts as fully supported, so the label is then
+    decided by retrieval scores alone, as before.
+    """
+    lines = reply.rstrip().splitlines()
+    if lines:
+        last = lines[-1].strip().strip("*_`").strip().upper()
+        if last in (SUPPORT_FULL, SUPPORT_PARTIAL):
+            return "\n".join(lines[:-1]).strip(), last == SUPPORT_PARTIAL
+    return reply, False
+
+
+def is_not_found(text: str) -> bool:
+    """True for a NOT_FOUND reply, also when the model garbles it (seen: 'NOT_FAILED NOT_FOUND').
+
+    Only a short reply counts, so an answer that merely mentions the token is kept.
+    """
+    return NOT_FOUND in text.upper() and len(text) <= 3 * len(NOT_FOUND)
+
+
 def generate_answer(
     query: Query,
     chunks: list[RecognizedChunk],
@@ -103,8 +137,10 @@ def generate_answer(
     if not chunks:
         return Answer(answer_id=answer_id, answer_text=NO_DOCUMENTS_ANSWER, reliability_label=reliability_label)
 
-    text = _generate(build_prompt(query.question_text, chunks))
-    if text == NOT_FOUND:
+    text, partial = split_support(_generate(build_prompt(query.question_text, chunks)))
+    if partial:
+        reliability_label = worse_of(reliability_label, ReliabilityLabel.MODERATE)
+    if is_not_found(text):
         text = NOT_FOUND_ANSWER
         reliability_label = worse_of(reliability_label, ReliabilityLabel.UNCERTAIN)
     return Answer(answer_id=answer_id, answer_text=text, reliability_label=reliability_label)
