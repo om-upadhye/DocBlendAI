@@ -39,7 +39,7 @@ function Sources({sources, nameOf}: {sources: Source[]; nameOf: (id: string) => 
               {nameOf(s.doc_id)} · {s.content_type}
             </Text>
             <Meter label="match" value={s.similarity} />
-            <Meter label="legibility" value={s.confidence} />
+            <Meter label="readability" value={s.confidence} />
             <Text style={styles.srcText} numberOfLines={8}>{s.text}</Text>
           </View>
         ))}
