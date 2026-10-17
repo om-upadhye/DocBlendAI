@@ -68,11 +68,15 @@ def image_page_count(file_path: str) -> int:
 
 
 def _to_page(frame: Image.Image, dpi: int) -> Image.Image:
-    page = ImageOps.exif_transpose(frame.copy())  # copy(): the frame object is reused by the iterator
-    if page.mode in ("RGBA", "LA", "PA") or "transparency" in page.info:
-        white = Image.new("RGBA", page.size, (255, 255, 255, 255))
-        page = Image.alpha_composite(white, page.convert("RGBA"))
-    page = page.convert("L")
+    # Grayscale first, then turn upright: the copies are a third of a colour photo's size, which
+    # keeps a 12-megapixel phone photo well within a small server's memory.
+    if frame.mode in ("RGBA", "LA", "PA") or "transparency" in frame.info:
+        white = Image.new("RGBA", frame.size, (255, 255, 255, 255))
+        gray = Image.alpha_composite(white, frame.convert("RGBA")).convert("L")
+        gray.info = dict(frame.info)  # keep the EXIF orientation for exif_transpose
+    else:
+        gray = frame.convert("L")  # a new image: the frame object is reused by the iterator
+    page = ImageOps.exif_transpose(gray)
 
     # Scale the image to about an A4 page at this DPI: shrink big phone photos, and enlarge
     # small screenshots (their text is often ~15 px tall, too small for OCR/HTR), at most 3x.

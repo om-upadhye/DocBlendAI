@@ -65,6 +65,7 @@ FULL_WIDTH = 0.55  # regions wider than this share of the page split it into rea
 CELL_SEPARATOR = "  "  # same as text_parser.CELL_SEPARATOR
 COLUMN_GAP_CHARS = 2.5  # a gap wider than this many characters is a column gap, not a space
 MAX_BLANK_ROWS = 2
+LAYOUT_INPUT_SIDE = 1024  # page side given to the layout model (it resizes to ~800 px itself)
 
 
 class LayoutUnavailableError(RuntimeError):
@@ -98,7 +99,11 @@ def _table_engine(model_type: str):
 
 def detect(image: Image.Image) -> list[dict]:
     """Layout detections: [{"type", "box" (page fractions), "score"}]. Raises LayoutUnavailableError."""
-    rgb = np.array(image.convert("RGB"))
+    # The layout models work at ~800 px, so a 1024 px copy gives the same boxes (they come back as
+    # page fractions) and saves ~100 MB on a full-size page.
+    small = image.convert("RGB")
+    small.thumbnail((LAYOUT_INPUT_SIDE, LAYOUT_INPUT_SIDE))
+    rgb = np.array(small)
     with _lock:  # one ONNX session shared by upload threads
         result = _layout_engine(settings.layout_model)(rgb)
     h, w = rgb.shape[:2]
@@ -349,7 +354,7 @@ def grid_rows(image: Image.Image, box: list[float], lines: list[dict]) -> list[l
     w, h = image.size
     x0, y0 = int(max(0.0, box[0] - 0.01) * w), int(max(0.0, box[1] - 0.01) * h)
     x1, y1 = int(min(1.0, box[2] + 0.01) * w), int(min(1.0, box[3] + 0.01) * h)
-    gray = np.array(image.convert("L").crop((x0, y0, x1, y1)))
+    gray = np.array(image.crop((x0, y0, x1, y1)).convert("L"))
     ch, cw = gray.shape
     if ch < 20 or cw < 20:
         return None
@@ -460,7 +465,7 @@ def _model_rows(image: Image.Image, box: list[float], lines: list[dict]) -> list
     pad = 0.005
     x0, y0 = int(max(0.0, box[0] - pad) * w), int(max(0.0, box[1] - pad) * h)
     x1, y1 = int(min(1.0, box[2] + pad) * w), int(min(1.0, box[3] + pad) * h)
-    crop = np.array(image.convert("RGB").crop((x0, y0, x1, y1)))
+    crop = np.array(image.crop((x0, y0, x1, y1)).convert("RGB"))  # crop first: only the table in colour
     quads, texts, scores = [], [], []
     for line in lines:
         for p in _pieces(line):

@@ -37,7 +37,7 @@ from app.modules.pdf_render import render_pages
 logger = logging.getLogger(__name__)
 
 MAX_SIDE = 1600
-TYPED_PREVIEW_DPI = 100
+TYPED_PREVIEW_DPI = 150  # typed PDFs: page images are the website's preview, so keep small text crisp
 MAX_PREVIEW_PAGES = 100  # typed PDFs: previews for at most this many pages
 
 
