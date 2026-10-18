@@ -570,7 +570,9 @@ repeated `query_id`, `422` no / unknown documents, `502` Gemini failed (e.g. dai
 ```
 
 Best `combined_score` first; shown under "Where I found this" with *match* (similarity) and
-*legibility* (confidence) bars.
+*legibility* (confidence) as percentages, rounded down so a number never crosses a label cut-off
+its colour has not. When the answer is "couldn't find", they are shown as "Closest passages"
+without percentages: any question, even random letters, scores ~45-65% against any text.
 
 ---
 

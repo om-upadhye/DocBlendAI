@@ -1101,12 +1101,13 @@ function addMessage(me, ...content) {
   return bubble;
 }
 
-function sourceView(s) {
-  // Words, not raw numbers: a similarity of 0.69 is a strong match for these embeddings,
-  // but shown as 69% it reads as weak. The exact score stays in the tooltip.
-  const meter = (label, [cls, word], v) => el("span", { class: `meter ${cls}`, title: `${label} score ${v.toFixed(2)}` }, `${label}: ${word}`);
+function sourceView(s, scores = true) {
+  // Rounded down, so the percentage never crosses a cut-off its colour has not (0.698 is 69%, not 70%).
+  // The word stays in the tooltip: for these embeddings 70% is already a strong match.
+  const meter = (label, [cls, word], v) => el("span", { class: `meter ${cls}`, title: `${label}: ${word}` }, `${label} ${Math.floor(v * 100)}%`);
   return el("div", { class: "source" },
-    el("div", { class: "meta" }, el("b", {}, docLabel(s.doc_id)), s.content_type, meter("match", matchWord(s.similarity), s.similarity), meter("legibility", confWord(s.confidence), s.confidence)),
+    el("div", { class: "meta" }, el("b", {}, docLabel(s.doc_id)), s.content_type,
+      scores ? meter("match", matchWord(s.similarity), s.similarity) : null, scores ? meter("legibility", confWord(s.confidence), s.confidence) : null),
     el("pre", {}, s.text));
 }
 
@@ -1124,14 +1125,19 @@ async function ask(question) {
     });
     const sources = await api(`/answer/${answer.answer_id}/sources`);
     const r = REL[answer.reliability_label];
+    // Same text as NOT_FOUND_ANSWER in app/modules/llm_answer.py.
+    const notFound = answer.answer_text === "I couldn't find the answer to that in the uploaded documents.";
     thinking.replaceChildren(
       el("span", { class: `rel ${answer.reliability_label}` }, r.icon, " ", r.title),
       el("div", { class: "text" }, answer.answer_text),
       el("div", { class: "why" }, r.why),
-      el("div", { class: "from" }, `From: ${docIds.map(docLabel).join(", ")}`));
+      ...(notFound ? [] : [el("div", { class: "from" }, `From: ${docIds.map(docLabel).join(", ")}`)]));
     if (sources.length) {
-      const details = el("details", { class: "src" }, el("summary", {}, `Where I found this (${sources.length})`));
-      sources.forEach((s) => details.append(sourceView(s)));
+      // Any question scores some similarity against any text (even gibberish reaches ~60%),
+      // so on a not-found answer the scores would only suggest a match that is not there.
+      const details = el("details", { class: "src" }, el("summary", {}, `${notFound ? "Closest passages" : "Where I found this"} (${sources.length})`));
+      if (notFound) details.append(el("div", { class: "why" }, "None of these answer your question; they are just the nearest text in your notes."));
+      sources.forEach((s) => details.append(sourceView(s, !notFound)));
       thinking.append(details);
     }
   } catch (err) {
