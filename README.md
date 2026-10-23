@@ -41,7 +41,7 @@ reaches the browser.
 
 ```mermaid
 flowchart LR
-    W["Website<br/>app/static/index.html<br/>(browser, any device)"]
+    W["Website (React)<br/>frontend/ → app/static<br/>(browser, any device)"]
 
     subgraph Server["FastAPI server (one process) - app/main.py"]
         R1["routers/upload.py<br/>upload, documents, pages"]
@@ -421,7 +421,7 @@ In Docker / Render everything above lives under `/data` (`DATABASE_URL`, `CHROMA
 | 6 | Reliability Tier Classification | `modules/reliability.py` | `classify_reliability`, `worse_of` |
 | 7 | LLM Answer Generation | `modules/llm_answer.py` | `build_prompt`, `generate_answer` |
 | – | Website support (not a synopsis module) | `app/site.py`, `routers/site.py` | sessions, cleanup, `/stats` |
-| – | Front end | `app/static/index.html` | website (desktop and phone layouts) |
+| – | Front end | `frontend/src/` (React), built into `app/static/` | website (desktop and phone layouts) |
 
 ---
 
@@ -460,7 +460,7 @@ Interactive docs with a "Try it out" button: `/docs` on any running server
 
 ### How the website calls the API
 
-All calls are in [app/static/index.html](app/static/index.html): the `api()` helper wraps
+All calls are in [frontend/src/api.ts](frontend/src/api.ts): the `api()` helper wraps
 `fetch(path, options)` and adds `X-Session-Id` to every call; uploads use `XMLHttpRequest` (for
 upload progress); a heartbeat goes out every ~75 s, and `navigator.sendBeacon` calls `/leave` on
 `pagehide`.
@@ -640,6 +640,21 @@ and the contents of `data/chroma_db/` (local dev data), restart, and re-upload.
 
 **Hosting on Render:** see [DEPLOY.md](DEPLOY.md) (one-click Blueprint in `render.yaml`).
 
+### Changing the website (React)
+
+The website's source is in `frontend/` (React + TypeScript + Vite). The built files are committed
+in `app/static/`, so running the server or deploying needs no Node.js. After changing anything in
+`frontend/src/`, rebuild once (needs [Node.js](https://nodejs.org/) 20+):
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+While working on it, `npm run dev` serves the site at http://localhost:5173 with live reload and
+forwards API calls to the server on port 8000.
+
 ## Running with Docker (for hosting)
 
 Needs [Docker Desktop](https://www.docker.com/products/docker-desktop/). With your key in `.env`:
@@ -705,7 +720,7 @@ app/
 ├── main.py                  FastAPI app, router registration, /health, serves the UI, cleanup loop
 ├── config.py                Settings from .env (pydantic-settings)
 ├── site.py                  Website support: sessions, document cleanup, visitor/question counters
-├── static/index.html        Website (desktop + phone layouts)
+├── static/                 Built website (from frontend/, served as is; no Node.js on the server)
 ├── routers/
 │   ├── upload.py            Module 1: POST /upload, GET/DELETE /documents, file/pages/images
 │   ├── query.py             POST /ask, GET /answer/{id}[/sources] (Modules 5-7)
@@ -735,6 +750,7 @@ app/
 │   └── models.py            ORM: Document, Query, Answer, RetrievalResult, sessions, counters
 └── models/
     └── schemas.py           Pydantic entities shared by all modules
+frontend/                    Website source (React + TypeScript): src/components, api.ts, styles.css
 scripts/
 └── setup_models.py          One-time setup check + TrOCR model download
 data/

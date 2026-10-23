@@ -4,6 +4,7 @@ OCR/HTR/calibration tests live in test_ocr_htr_confidence.py; content types,
 confidence-aware ranking, and reliability tiers in test_content_type_reliability.py.
 """
 
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -623,5 +624,8 @@ def test_list_documents(client, pdf_file) -> None:
 
 def test_frontend_is_served(client) -> None:
     resp = client.get("/")
-    assert resp.status_code == 200
-    assert "DocBlendAI" in resp.text and "/ask" in resp.text
+    assert resp.status_code == 200 and "DocBlendAI" in resp.text
+    # The built page loads its script from /assets, and that script talks to the API.
+    script = re.search(r'src="(/assets/[^"]+\.js)"', resp.text).group(1)
+    js = client.get(script)
+    assert js.status_code == 200 and "/ask" in js.text

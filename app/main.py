@@ -17,6 +17,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.config import settings
@@ -92,6 +93,9 @@ app = FastAPI(
 app.include_router(upload.router)
 app.include_router(query.router)
 app.include_router(site_routes.router)
+# The web page's scripts and styles, built from frontend/ (npm run build). Their names carry a
+# content hash, so browsers may keep them for good.
+app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets", check_dir=False), name="assets")
 
 
 @app.get("/health", tags=["system"])
