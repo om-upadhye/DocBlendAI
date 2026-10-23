@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # Lite by default: the free tier allows only 20 gemini-3.5-flash answers per day per project,
     # too few for a demo or one evaluation run. Set LLM_MODEL=gemini-3.5-flash in .env on a paid key.
     llm_model: str = "gemini-3.5-flash-lite"
-    top_k: int = 5  # chunks retrieved per question
+    top_k: int = 8  # chunks retrieved per question (lists, tables and multi-part answers need several)
     # combined_score = w * similarity + (1 - w) * calibrated confidence. Relevance dominates:
     # a clearly-read but off-topic chunk should not outrank a relevant, less legible one.
     similarity_weight: float = 0.7

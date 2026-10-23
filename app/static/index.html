@@ -139,9 +139,7 @@
   .source .meta b { color: var(--text); font-weight: 600; }
   .source pre { margin: 0; white-space: pre-wrap; font: 13px/1.5 "Segoe UI", system-ui, sans-serif; color: var(--text);
                 max-height: 150px; overflow: auto; background: #fafbff; border-radius: 8px; padding: 8px; }
-  .meter { display: inline-flex; align-items: center; gap: 5px; }
-  .meter i { width: 54px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; display: inline-block; }
-  .meter i b { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+  .meter { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; cursor: help; }
   .typing { display: inline-flex; gap: 4px; padding: 4px 2px; }
   .typing i { width: 7px; height: 7px; border-radius: 50%; background: #9aa8cf; animation: blink 1.2s infinite; }
   .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
@@ -613,6 +611,12 @@ function nameFromPath(doc) {
   const base = doc.file_path.split(/[\\/]/).pop();
   return base.startsWith(doc.doc_id + "_") ? base.slice(doc.doc_id.length + 1) : base;
 }
+// The name a file gets on the server (routers/upload.py: safe_name), to spot re-uploads.
+function storedName(name) {
+  const dot = name.lastIndexOf(".");
+  const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot).toLowerCase()] : [name, ""];
+  return (stem.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) || "document") + ext;
+}
 function docLabel(id) { return docNames[id] || id.slice(0, 8); }
 function kindOf(name) {
   const ext = name.split(".").pop().toLowerCase();
@@ -980,6 +984,9 @@ fileInput.addEventListener("change", () => { uploadAll([...fileInput.files]); fi
 async function uploadAll(files) {
   let lastId = null;
   for (const file of files) {
+    // A second copy adds nothing to answers and only repeats the same passages.
+    if (Object.values(docNames).includes(storedName(file.name))
+        && !confirm(`"${file.name}" is already in your documents. Upload it again anyway?`)) continue;
     const id = await uploadOne(file);
     if (id) lastId = id;
   }
@@ -1094,11 +1101,13 @@ function addMessage(me, ...content) {
   return bubble;
 }
 
-function sourceView(s) {
-  const meter = (label, v) => el("span", { class: "meter" }, label,
-    Object.assign(el("i"), { innerHTML: `<b style="width:${Math.round(v * 100)}%"></b>` }), v.toFixed(2));
+function sourceView(s, scores = true) {
+  // Rounded down, so the percentage never crosses a cut-off its colour has not (0.698 is 69%, not 70%).
+  // The word stays in the tooltip: for these embeddings 70% is already a strong match.
+  const meter = (label, [cls, word], v) => el("span", { class: `meter ${cls}`, title: `${label}: ${word}` }, `${label} ${Math.floor(v * 100)}%`);
   return el("div", { class: "source" },
-    el("div", { class: "meta" }, el("b", {}, docLabel(s.doc_id)), s.content_type, meter("match", s.similarity), meter("legibility", s.confidence)),
+    el("div", { class: "meta" }, el("b", {}, docLabel(s.doc_id)), s.content_type,
+      scores ? meter("match", matchWord(s.similarity), s.similarity) : null, scores ? meter("legibility", confWord(s.confidence), s.confidence) : null),
     el("pre", {}, s.text));
 }
 
@@ -1116,14 +1125,19 @@ async function ask(question) {
     });
     const sources = await api(`/answer/${answer.answer_id}/sources`);
     const r = REL[answer.reliability_label];
+    // Same text as NOT_FOUND_ANSWER in app/modules/llm_answer.py.
+    const notFound = answer.answer_text === "I couldn't find the answer to that in the uploaded documents.";
     thinking.replaceChildren(
       el("span", { class: `rel ${answer.reliability_label}` }, r.icon, " ", r.title),
       el("div", { class: "text" }, answer.answer_text),
       el("div", { class: "why" }, r.why),
-      el("div", { class: "from" }, `From: ${docIds.map(docLabel).join(", ")}`));
+      ...(notFound ? [] : [el("div", { class: "from" }, `From: ${docIds.map(docLabel).join(", ")}`)]));
     if (sources.length) {
-      const details = el("details", { class: "src" }, el("summary", {}, `Where I found this (${sources.length})`));
-      sources.forEach((s) => details.append(sourceView(s)));
+      // Any question scores some similarity against any text (even gibberish reaches ~60%),
+      // so on a not-found answer the scores would only suggest a match that is not there.
+      const details = el("details", { class: "src" }, el("summary", {}, `${notFound ? "Closest passages" : "Where I found this"} (${sources.length})`));
+      if (notFound) details.append(el("div", { class: "why" }, "None of these answer your question; they are just the nearest text in your notes."));
+      sources.forEach((s) => details.append(sourceView(s, !notFound)));
       thinking.append(details);
     }
   } catch (err) {
@@ -1190,8 +1204,11 @@ function renderModes() {
     return b;
   }));
 }
-function confClass(c) { return c >= 0.85 ? "c-high" : c >= 0.6 ? "c-mid" : "c-low"; }  // same cut-offs as the labels
+// Same cut-offs as the reliability labels (app/modules/reliability.py).
+function confClass(c) { return c >= 0.9 ? "c-high" : c >= 0.6 ? "c-mid" : "c-low"; }
 const LEGEND_CONF = [["c-high", "clear"], ["c-mid", "partly legible"], ["c-low", "hard to read"]];
+function confWord(c) { return LEGEND_CONF.find(([cls]) => cls === confClass(c)); }
+function matchWord(s) { return s >= 0.7 ? ["c-high", "strong"] : s >= 0.6 ? ["c-mid", "fair"] : ["c-low", "weak"]; }
 const BLOCK = { paragraph: ["Paragraph", "paragraphs"], table: ["Table", "tables"], image: ["Picture", "pictures"] };
 const LEGEND_TYPES = Object.entries(BLOCK).map(([type, [name]]) => [`t-${type}`, name.toLowerCase()]);
 function setLegend(entries, label) {
