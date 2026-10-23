@@ -9,9 +9,12 @@ Document row.
 Uses from schemas.py: Document, FormatType.
 """
 
+import ctypes
+import gc
 import logging
 import re
 import shutil
+import threading
 import uuid
 from pathlib import Path
 
@@ -48,6 +51,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["upload"])
 
 
+_reading = threading.Lock()
+
+
+def _release_memory() -> None:
+    """Give the page images and model buffers of the last upload back to the system.
+
+    Python frees objects, but glibc keeps the freed memory in the process for reuse; on a 512 MB
+    server that leftover plus the next upload is what runs out. malloc_trim hands it back (Linux only).
+    """
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except OSError:  # not Linux / not glibc
+        pass
+
+
 # Plain `def` (not async): PDF parsing, OCR, and HTR are blocking, so FastAPI runs this in its threadpool.
 @router.post("/upload", response_model=Document, status_code=status.HTTP_201_CREATED)
 def upload_document(
@@ -82,7 +101,13 @@ def upload_document(
         shutil.copyfileobj(file.file, out)
 
     try:
-        document = _ingest(doc_id, path, format_hint, db)
+        # One document is read at a time: reading a page needs ~150-250 MB, so two at once would push
+        # a 512 MB server over its limit and the host would restart it mid-upload (a 502 for the visitor).
+        # Others wait their turn; their session stays alive meanwhile.
+        with _reading:
+            if session_id:
+                site.touch(db, session_id)
+            document = _ingest(doc_id, path, format_hint, db)
         site.claim(db, session_id, doc_id)
     except Exception:
         # Any failure (rejection, service error, or bug) leaves no stray upload behind.
@@ -90,6 +115,7 @@ def upload_document(
         raise
     finally:
         format_detection.forget(str(path))
+        _release_memory()
     logger.info("Uploaded %s as %s", file.filename, doc_id)
     return document
 

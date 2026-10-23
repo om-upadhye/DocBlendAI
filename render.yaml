@@ -23,3 +23,5 @@ services:
         value: "30"
       - key: OCR_THREADS
         value: "1"
+      - key: OCR_MAX_SIDE
+        value: "1280"     # handwriting reader: ~150 MB per page instead of ~230 MB; keeps uploads under 512 MB

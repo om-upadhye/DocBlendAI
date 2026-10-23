@@ -98,8 +98,10 @@ app.include_router(site_routes.router)
 app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets", check_dir=False), name="assets")
 
 
+# async: answered on the event loop, so the host's health check gets a reply even while every
+# worker thread is busy reading an upload (a missed check makes the host restart the server).
 @app.get("/health", tags=["system"])
-def health() -> dict[str, str]:
+async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 

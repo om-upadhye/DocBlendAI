@@ -64,17 +64,21 @@ export function sizeText(bytes: number): string {
 
 // ---------- uploads ----------
 
-// Photos are shrunk in the browser before upload: phone photos are often 3-12 MB, while
-// 2600 px on the long side at JPEG quality 85 keeps every letter readable for OCR
-// (the server resizes pages to about A4 anyway). PDFs and Office files are sent as they are.
+// Photos are made smaller in the browser before upload. Phone photos are 3-12 MB at 4000 px or
+// more, but the server never reads beyond about 2300 px (handwriting reader 1280-1600 px, vision
+// model 2000 px), so 2400 px at JPEG quality 90 looks the same and reads the same, at a fraction
+// of the size: a faster upload and less work for a small server. PDFs and Office files are sent as they are.
 export const SHRINK_TYPES = ["image/jpeg", "image/png", "image/webp", "image/bmp"];
-const MAX_SIDE = 2600;
-export const SHRINK_ABOVE = 700 * 1024;
+const MAX_SIDE = 2400;
+const QUALITY = 0.9;
+export const SHRINK_ABOVE = 400 * 1024;  // smaller files are sent as they are
 
 export async function shrinkPhoto(file: File): Promise<File> {
-  if (!SHRINK_TYPES.includes(file.type) || file.size < SHRINK_ABOVE || !window.createImageBitmap) return file;
+  if (!SHRINK_TYPES.includes(file.type) || !window.createImageBitmap) return file;
   try {
     const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });  // phone photos upright
+    const big = Math.max(bitmap.width, bitmap.height) > MAX_SIDE;
+    if (!big && file.size < SHRINK_ABOVE) { bitmap.close?.(); return file; }
     const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(bitmap.width * scale);
@@ -84,10 +88,25 @@ export async function shrinkPhoto(file: File): Promise<File> {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close?.();
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", QUALITY));
     if (!blob || blob.size >= file.size) return file;  // never send something bigger
     return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
   } catch { return file; }  // the server can still read the original
+}
+
+/** The server was restarting or overloaded (502/503/504, or the connection dropped): worth one more try. */
+export class ServerBusyError extends Error {}
+
+const BUSY = "The server was busy and restarted while reading this file.";
+
+/** Wait until the server answers its health check again (it restarts in about half a minute). */
+export async function waitForServer(maxSeconds = 90): Promise<boolean> {
+  const until = Date.now() + maxSeconds * 1000;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 4000));
+    try { if ((await fetch("/health", { cache: "no-store" })).ok) return true; } catch { /* still down */ }
+  }
+  return false;
 }
 
 /** fetch() cannot report upload progress; XMLHttpRequest can. */
@@ -102,9 +121,13 @@ export function uploadWithProgress(form: FormData, onProgress: (fraction: number
       let body: { detail?: unknown } = {};
       try { body = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
       if (xhr.status >= 200 && xhr.status < 300) resolve(body as Doc);
+      else if ([502, 503, 504].includes(xhr.status) && typeof body.detail !== "string") reject(new ServerBusyError(BUSY));
       else reject(new Error(typeof body.detail === "string" ? body.detail : `Something went wrong (${xhr.status})`));
     };
-    xhr.onerror = () => reject(new Error("Upload failed. Check your internet connection and try again."));
+    // A dropped connection after the file was sent is the server going down, not the visitor's internet.
+    let sent = false;
+    xhr.upload.addEventListener("load", () => { sent = true; });
+    xhr.onerror = () => reject(sent ? new ServerBusyError(BUSY) : new Error("Upload failed. Check your internet connection and try again."));
     xhr.send(form);
   });
 }

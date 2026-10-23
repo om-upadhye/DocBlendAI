@@ -1,6 +1,6 @@
 import { Check, CircleAlert, Eye, FileStack, Lock, Plus, Trash2, Upload } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
-import { SHRINK_ABOVE, SHRINK_TYPES, kindOf, shrinkPhoto, sizeText, storedName, uploadWithProgress } from "../api";
+import { ServerBusyError, kindOf, shrinkPhoto, sizeText, storedName, uploadWithProgress, waitForServer } from "../api";
 import type { Doc, FormatType } from "../types";
 import { FORMAT, STEPS } from "../words";
 import { Knob, Push, Switch, Tray } from "./Keys";
@@ -36,10 +36,13 @@ export function Library({ docs, names, selected, onSelect, previewId, onPreview,
     const id = ++nextJob.current;
     setJobs((all) => [{ id, name: file.name, msg: "Preparing…", state: "busy" }, ...all]);
     const original = file.size;
-    if (SHRINK_TYPES.includes(file.type) && original >= SHRINK_ABOVE) patch(id, { msg: "Shrinking photo…" });
+    if (file.type.startsWith("image/")) patch(id, { msg: "Preparing photo…" });
     file = await shrinkPhoto(file);
-    const note = file.size < original ? ` Photo shrunk ${sizeText(original)} → ${sizeText(file.size)}.` : "";
+    const note = file.size < original ? ` Photo made lighter for upload: ${sizeText(original)} → ${sizeText(file.size)}.` : "";
+    return send(id, file, note, true);
+  }
 
+  async function send(id: number, file: File, note: string, mayRetry: boolean): Promise<string | null> {
     let uploaded = 0, readingSince: number | null = null, step = 1;
     const show = () => {
       if (readingSince === null) { patch(id, { msg: `Uploading ${Math.round(uploaded * 100)}% of ${sizeText(file.size)}…` }); return; }
@@ -65,7 +68,15 @@ export function Library({ docs, names, selected, onSelect, previewId, onPreview,
       return doc.doc_id;
     } catch (err) {
       clearInterval(timer);
-      patch(id, { state: "err", msg: (err as Error).message });
+      if (err instanceof ServerBusyError && mayRetry) {
+        // Wait for the server to come back, then try this file once more.
+        patch(id, { msg: "The server is busy. Waiting for it, then trying again…" });
+        if (await waitForServer()) return send(id, file, note, false);
+      }
+      const msg = err instanceof ServerBusyError
+        ? "The server couldn't finish this file right now. Please try again in a minute, or try a smaller photo or a PDF."
+        : (err as Error).message;
+      patch(id, { state: "err", msg });
       return null;
     }
   }
