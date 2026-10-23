@@ -40,6 +40,7 @@ from app.modules import (
     ocr_extractor,
     page_store,
     vector_store,
+    vision_reader,
 )
 
 logger = logging.getLogger(__name__)
@@ -186,6 +187,11 @@ class PageView(BaseModel):
     regions: list[RegionView] = []
     blocks: list[BlockView]
     layout_text: str = Field("", description="The page as monospace text with its spacing and columns kept")
+    vision: dict | None = Field(
+        None,
+        description="Set when a vision model read this page (vision_reader.py): model, confidence (agreement "
+        "with OCR), legibility (the model's own estimate), word counts, and what it set aside",
+    )
 
 
 @router.get("/documents/{doc_id}/pages", response_model=list[PageView])
@@ -208,6 +214,7 @@ def document_pages(doc_id: str, db: Session = Depends(get_db)) -> list[PageView]
             lines=p["lines"],
             regions=p.get("regions", []),
             layout_text=p.get("layout_text") or p["text"],
+            vision=p.get("vision"),
             blocks=[
                 BlockView(
                     **{k: v for k, v in b.items() if k != "picture"},
@@ -288,6 +295,45 @@ def export_document(
     )
 
 
+def _vision_read(layout: list[dict], extracted: list, blocks: list | None, format_type: FormatType) -> set[int]:
+    """Read qualifying pages with the vision model (3 at a time). Returns the page indexes it replaced.
+
+    Any failure (no key, quota, network) keeps the OCR text for that page: uploads never fail over it.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    todo = [
+        i for i, record in enumerate(layout)
+        if i < len(extracted)
+        and vision_reader.should_read(format_type.value, confidence_capture.calibrate(extracted[i][1], format_type))
+    ]
+    if not todo:
+        return set()
+
+    def read(i: int):
+        try:
+            return i, vision_reader.read_page(layout[i]["image"], layout[i]["lines"])
+        except Exception as e:  # keep OCR's reading for this page
+            logger.warning("Vision reading of page %d failed, keeping OCR text: %s", i + 1, e)
+            return i, None
+
+    done: set[int] = set()
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for i, read_ in pool.map(read, todo):
+            if read_ is None:
+                continue
+            extracted[i] = (read_.text, read_.raw_conf)
+            if blocks is not None and i < len(blocks):
+                blocks[i] = None  # chunk the transcription as running text
+            layout[i]["layout_text"] = read_.text
+            layout[i]["vision"] = {
+                "model": read_.model, "confidence": read_.raw_conf, "legibility": read_.legibility,
+                "words": read_.words, "ignored": read_.ignored,
+            }
+            done.add(i)
+    return done
+
+
 def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session) -> Document:
     """Detect -> extract -> chunk -> calibrate -> label -> embed -> store. Raises HTTPException on expected failures."""
     unreadable = f"File is not a readable {path.suffix} file (damaged, or not what its extension says)"
@@ -325,10 +371,17 @@ def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session
                 extracted[i] = (analysis["text"], extracted[i][1])
             blocks.append(layout_analysis.qa_blocks(analysis["regions"]))
 
-    chunks = chunker.chunk_pages(doc_id, extracted, blocks=blocks)
+    # Hard pages (handwriting, poor scans) are read again by a vision model; its transcription
+    # replaces the OCR text for answering, with a confidence from agreement with OCR (vision_reader.py).
+    vision_pages = _vision_read(layout, extracted, blocks, format_type)
+
+    page_of: list[int] = []
+    chunks = chunker.chunk_pages(doc_id, extracted, blocks=blocks, pages_out=page_of)
     if not chunks:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No readable text found in this file")
     chunks = confidence_capture.apply_calibration(chunks, format_type)
+    # A vision page's confidence is already an accuracy estimate (agreement), not an OCR score to calibrate.
+    chunks = [c.model_copy(update={"calibrated_conf": c.raw_conf}) if page_of[n] in vision_pages else c for n, c in enumerate(chunks)]
     chunks = content_type.label_chunks(chunks)
 
     try:
@@ -356,7 +409,8 @@ def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session
         for region in record.get("regions", []):
             region["conf"] = round(calibrate(region["conf"]), 4)
     page_store.save(
-        doc_id, str(path), [(t, calibrate(c)) for t, c in extracted], layout, typed=format_type is FormatType.TYPED
+        doc_id, str(path), [(t, c if i in vision_pages else calibrate(c)) for i, (t, c) in enumerate(extracted)],
+        layout, typed=format_type is FormatType.TYPED,
     )
 
     mean_conf = sum(c.calibrated_conf for c in chunks) / len(chunks)

@@ -174,6 +174,14 @@ def no_real_paddle_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_vision_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never call the Gemini vision model: vision reading and the answer recheck are off
+    unless a test turns them on with a fake (see test_vision_reader.py)."""
+    monkeypatch.setattr(settings, "vision_read", "off")
+    monkeypatch.setattr(settings, "visual_recheck", False)
+
+
+@pytest.fixture(autouse=True)
 def fake_layout(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """Never run the real layout / table models: detections come from fake.regions (default none)."""
     fake = SimpleNamespace(regions=[])

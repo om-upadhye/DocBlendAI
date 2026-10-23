@@ -21,6 +21,7 @@ def chunk_pages(
     chunk_size: int = 1000,
     overlap: int = 200,
     blocks: list[list[tuple[str, ContentType | None]] | None] | None = None,
+    pages_out: list[int] | None = None,
 ) -> list[RecognizedChunk]:
     """Turn (page_text, raw_conf) pages into RecognizedChunks with unique chunk_ids.
 
@@ -31,6 +32,7 @@ def chunk_pages(
 
     blocks (optional, per page): the page's layout regions in reading order as (text, content
     type or None); tables and figures then become their own chunks (see _block_pieces).
+    pages_out (optional list): receives each chunk's page index, in chunk order.
     """
     if not 0 <= overlap < chunk_size:
         raise ValueError("overlap must be >= 0 and smaller than chunk_size")
@@ -45,6 +47,8 @@ def chunk_pages(
         for text, kind in pieces:
             chunk = RecognizedChunk(chunk_id=f"{doc_id}:{len(chunks)}", text=text, raw_conf=raw_conf)
             chunks.append(chunk.model_copy(update={"content_type": kind}) if kind else chunk)
+            if pages_out is not None:
+                pages_out.append(i)
     return chunks
 
 

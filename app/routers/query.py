@@ -16,8 +16,8 @@ from app import site
 from app.config import settings
 from app.db.database import get_db
 from app.db.models import AnswerORM, DocumentORM, QueryORM, RetrievalResultORM
-from app.models.schemas import Answer, ContentType, Query, RetrievalResult
-from app.modules import embedder, llm_answer, reliability, retrieval, vector_store
+from app.models.schemas import Answer, ContentType, Query, ReliabilityLabel, RetrievalResult
+from app.modules import embedder, llm_answer, page_store, reliability, retrieval, vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,8 @@ def ask(
         results = [r for _, r in hits]
         label = reliability.classify_reliability(results)
         answer = llm_answer.generate_answer(query, [c for c, _ in hits], label)
+        if settings.visual_recheck and answer.reliability_label in UNSURE and hits:
+            answer = _recheck(query, hits) or answer
     except (embedder.EmbeddingError, llm_answer.LLMError) as e:
         logger.error("Answering %s failed: %s", query.query_id, e)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Gemini service failed; try again later")
@@ -76,6 +78,34 @@ def ask(
 
     logger.info("Answered %s: %s from %d chunks", query.query_id, answer.reliability_label.value, len(results))
     return answer
+
+
+UNSURE = (ReliabilityLabel.UNCERTAIN, ReliabilityLabel.UNREADABLE)
+
+
+def _recheck(query: Query, hits: list) -> Answer | None:
+    """Uncertain answer from scanned / handwritten notes: look at the pages of the best passages again."""
+    from PIL import Image
+
+    by_doc: dict[str, list[str]] = {}
+    for chunk, _ in hits:
+        by_doc.setdefault(chunk.chunk_id.rsplit(":", 1)[0], []).append(chunk.text)
+    paths = []
+    for doc_id, texts in by_doc.items():
+        paths += page_store.page_images_for(doc_id, texts, limit=2 - len(paths))
+        if len(paths) >= 2:
+            break
+    if not paths:  # typed documents: no page images, nothing more to see
+        return None
+    images = [Image.open(p) for p in paths]
+    try:
+        better = llm_answer.recheck_with_pages(query, [c for c, _ in hits], images)
+    finally:
+        for img in images:
+            img.close()
+    if better:
+        logger.info("Answer for %s recovered from %d page image(s)", query.query_id, len(paths))
+    return better
 
 
 @router.get("/answer/{answer_id}", response_model=Answer)

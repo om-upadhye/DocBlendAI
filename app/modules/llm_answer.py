@@ -151,3 +151,34 @@ def generate_answer(
         text = NOT_FOUND_ANSWER
         reliability_label = worse_of(reliability_label, ReliabilityLabel.UNCERTAIN)
     return Answer(answer_id=answer_id, answer_text=text, reliability_label=reliability_label)
+
+
+RECHECK_INSTRUCTION = (
+    "The page images attached are the original notes; the numbered passages are what text "
+    "recognition read from them and may contain misread or missing words. Read the pages "
+    "themselves to answer, and use the passages only as a guide to where to look. Answer only "
+    "from what you can actually see on the pages; never guess at words you cannot read. "
+)
+RECHECKED_NOTE = "(I read this from the page image itself, because the recognized text was unclear.)"
+
+
+def recheck_with_pages(query: Query, chunks: list[RecognizedChunk], images: list) -> Answer | None:
+    """Second look for an Uncertain answer from scanned / handwritten notes: ask again with the pages.
+
+    Returns None when the pages do not answer it either (or the vision model is unavailable).
+    An answer found this way rests on one reader only, so its label is at most Moderate
+    (Uncertain if the model says the pages support it only partly).
+    """
+    from app.modules import vision_reader
+
+    prompt = f"{SYSTEM_INSTRUCTION}\n\n{RECHECK_INSTRUCTION}\n\n{build_prompt(query.question_text, chunks)}"
+    try:
+        reply, model = vision_reader.ask_with_images(prompt, images)
+    except vision_reader.VisionUnavailableError:
+        return None
+    text, partial = split_support(reply)
+    if is_not_found(text) or not text.strip():
+        return None
+    label = ReliabilityLabel.UNCERTAIN if partial else ReliabilityLabel.MODERATE
+    return Answer(answer_id=uuid.uuid4().hex, answer_text=f"{text}\n\n{RECHECKED_NOTE}", reliability_label=label)
+

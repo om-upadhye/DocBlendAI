@@ -69,6 +69,7 @@ def save(doc_id: str, file_path: str, extracted: list[tuple[str, float]], layout
                 "lines": record.get("lines", []),
                 "regions": record.get("regions", []),
                 "layout_text": record.get("layout_text") or text,
+                "vision": record.get("vision"),  # set when a vision model read this page (vision_reader.py)
             })
         if typed:
             _add_blocks(pages, file_path, directory)
@@ -133,3 +134,21 @@ def picture_path(doc_id: str, name: str) -> Path | None:
 
 def delete(doc_id: str) -> None:
     shutil.rmtree(pages_dir(doc_id), ignore_errors=True)
+
+
+def page_images_for(doc_id: str, chunk_texts: list[str], limit: int = 2) -> list[Path]:
+    """Page images the given chunks were read from (each page once, best chunks first)."""
+    pages = load(doc_id) or []
+    found: list[Path] = []
+    for text in chunk_texts:
+        probe = " ".join(text.split())[:60]
+        for p in pages:
+            if p.get("image") and probe and probe in " ".join(p.get("text", "").split()):
+                path = pages_dir(doc_id) / p["image"]
+                if path.is_file() and path not in found:
+                    found.append(path)
+                break
+        if len(found) >= limit:
+            break
+    return found
+

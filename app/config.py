@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     htr_model: str = "microsoft/trocr-small-handwritten"
     calibration_file: Path = DATA_DIR / "calibration.json"
 
+    # Reading hard pages with a Gemini vision model (vision_reader.py): "auto" = every handwritten
+    # page + printed scans OCR found hard, "always" = every scanned/handwritten page, "off".
+    vision_read: str = "auto"
+    vision_model: str = "gemini-3.5-flash"  # best reading; the free tier allows ~20 pages a day
+    vision_fallback_model: str = "gemini-3.5-flash-lite"  # used when the first is out of quota or fails
+    vision_min_ocr_conf: float = 0.9  # auto mode: printed scans below this calibrated OCR confidence
+    # When an answer from scanned / handwritten notes comes out Uncertain or "couldn't find", look
+    # at the page images of the best passages once more before giving up.
+    visual_recheck: bool = True
+
     # Layout analysis of scanned / handwritten pages (layout_analysis.py): regions, tables, reading order.
     layout_analysis: bool = True
     # rapid-layout model: pp_layout_cdla (bundled, ~7 MB) or pp_doc_layoutv2 / v3 (PP-StructureV3's
