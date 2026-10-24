@@ -181,7 +181,7 @@ def _group_loose_lines(lines: list[dict], line_h: float) -> list[dict]:
         if groups:
             last = groups[-1][-1]
             close = line["box"][1] - last["box"][3] < 1.2 * line_h
-            same_column = min(line["box"][2], last["box"][2]) - max(line["box"][0], last["box"][0]) > 0
+            same_column = min(line["box"][2], last["box"][2]) - max(line["box"][0], last["box"][0]) > 0 and line.get("column") == last.get("column")
             same_size = abs((line["box"][3] - line["box"][1]) - (last["box"][3] - last["box"][1])) < 0.5 * line_h
             if close and same_column and same_size:
                 groups[-1].append(line)
@@ -201,7 +201,7 @@ def _is_title(lines: list[dict], line_h: float) -> bool:
 
 
 def _lines_text(lines: list[dict]) -> str:
-    return "\n".join(l["text"] for l in sorted(lines, key=lambda l: (round(_centre(l["box"])[1], 3), l["box"][0])))
+    return "\n".join(l["text"] for l in sorted(lines, key=lambda l: (l.get("column", 0), round(_centre(l["box"])[1], 3), l["box"][0])))
 
 
 def _conf(lines: list[dict]) -> float:
@@ -209,8 +209,39 @@ def _conf(lines: list[dict]) -> float:
     return round(sum(l.get("conf", 1.0) * len(l["text"]) for l in lines) / chars, 4) if chars else 0.0
 
 
+def _split_by_column(regions: list[dict]) -> list[dict]:
+    """Regions whose lines lie in different columns of the reader (two pages side by side), one per column.
+
+    The handwriting reader knows which page each line is on (line["column"]); on a tilted
+    photo the layout model's boxes can span both pages.
+    """
+    out = []
+    for r in regions:
+        columns = sorted({l["column"] for l in r["lines"] if "column" in l})
+        if len(columns) < 2:
+            out.append(r)
+            continue
+        for c in columns:
+            part = [l for l in r["lines"] if l.get("column") == c]
+            out.append({**r, "box": _union([l["box"] for l in part]), "lines": part})
+    return out
+
+
+def _column(region: dict) -> int | None:
+    columns = [l["column"] for l in region.get("lines", []) if "column" in l]
+    return min(columns) if columns else None
+
+
 def reading_order(regions: list[dict]) -> list[dict]:
-    """Headers, then bands top to bottom (full-width regions split bands; left column first), then footers."""
+    """Headers, then bands top to bottom (full-width regions split bands; left column first), then footers.
+
+    When the reader split the page into columns (two notebook pages in one photo), those are
+    followed instead: each column top to bottom, left column first. The middle of the photo
+    is not where the pages meet on a tilted or off-centre photo.
+    """
+    if len({_column(r) for r in regions} - {None}) > 1:
+        rank = {"header": 0, "footer": 2}
+        return sorted(regions, key=lambda r: (rank.get(r["type"], 1), _column(r) or 0, r["box"][1]))
     headers = sorted((r for r in regions if r["type"] == "header"), key=lambda r: (r["box"][1], r["box"][0]))
     footers = sorted((r for r in regions if r["type"] == "footer"), key=lambda r: (r["box"][1], r["box"][0]))
     body = sorted((r for r in regions if r["type"] not in ("header", "footer")), key=lambda r: r["box"][1])
@@ -494,7 +525,7 @@ def read_region(image: Image.Image, box: list[float]) -> list[dict]:
     x0, y0 = int(box[0] * w), int(box[1] * h)
     x1, y1 = max(x0 + 1, int(box[2] * w)), max(y0 + 1, int(box[3] * h))
     crop_lines: list[dict] = []
-    paddle_extractor.read_image(image.crop((x0, y0, x1, y1)), crop_lines)
+    paddle_extractor.read_image(image.crop((x0, y0, x1, y1)), crop_lines, columns=False)  # table rows run across
     cw, ch = (x1 - x0) / w, (y1 - y0) / h
 
     def to_page(b: list[float]) -> list[float]:
@@ -631,7 +662,7 @@ def analyze_page(image: Image.Image, lines: list[dict]) -> dict:
         if r["type"] == "text" and _is_title(r["lines"], line_h):
             r["type"] = "title"
     out = []
-    for r in reading_order(regions):
+    for r in reading_order(_split_by_column(regions)):
         region = {"type": r["type"], "box": [round(v, 5) for v in r["box"]], "conf": _conf(r["lines"])}
         if r["type"] == "table":
             region["rows"] = table_rows(image, r["box"], r["lines"])

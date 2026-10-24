@@ -12,8 +12,10 @@ Uses from schemas.py: Document, FormatType.
 import logging
 import re
 import shutil
+import unicodedata
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
@@ -48,6 +50,13 @@ router = APIRouter(tags=["upload"])
 
 
 # Plain `def` (not async): PDF parsing, OCR, and HTR are blocking, so FastAPI runs this in its threadpool.
+def _safe_stem(stem: str) -> str:
+    """The upload's name, safe as part of a file name: letters, vowel signs and digits of any script
+    (a Marathi or Hindi name stays readable), ".", "-" and "_"; any other run of characters becomes "_"."""
+    keep = "".join(c if unicodedata.category(c)[0] in "LMN" or c in ".-_" else " " for c in stem)
+    return "_".join(keep.split())[:80] or "document"
+
+
 @router.post("/upload", response_model=Document, status_code=status.HTTP_201_CREATED)
 def upload_document(
     file: UploadFile = File(...),
@@ -74,7 +83,7 @@ def upload_document(
 
     doc_id = uuid.uuid4().hex
     # Keep the original name in the stored path so the UI can show it (the Document entity has no name field).
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(filename).stem)[:80] or "document"
+    safe_name = _safe_stem(Path(filename).stem)
     path = settings.upload_dir / f"{doc_id}_{safe_name}{Path(filename).suffix.lower()}"
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as out:
@@ -284,8 +293,14 @@ def export_document(
     return Response(
         content,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"', "X-Content-Type-Options": "nosniff"},
+        headers={"Content-Disposition": _attachment(filename), "X-Content-Type-Options": "nosniff"},
     )
+
+
+def _attachment(filename: str) -> str:
+    """Content-Disposition for a download; non-English names (e.g. Marathi) travel UTF-8 encoded (RFC 6266)."""
+    fallback = re.sub(r"[^A-Za-z0-9._-]+", "_", filename)
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename)}"
 
 
 def _ingest(doc_id: str, path: Path, format_hint: FormatType | None, db: Session) -> Document:

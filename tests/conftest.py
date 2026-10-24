@@ -121,7 +121,7 @@ def no_real_htr_model(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def no_orientation_detection(monkeypatch: pytest.MonkeyPatch) -> None:
     """Skip Tesseract OSD in tests (keeps them offline); test_file_formats tests the real logic."""
-    monkeypatch.setattr(ocr_extractor, "auto_orient", lambda page: page)
+    monkeypatch.setattr(ocr_extractor, "auto_orient", lambda page, score=None: page)
 
 
 @pytest.fixture(autouse=True)
@@ -153,7 +153,7 @@ def fake_htr(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """Replace handwriting recognition (both engines): every page reads as (fake.text, fake.conf)."""
     fake = SimpleNamespace(text="", conf=0.0)
 
-    def _read(image, lines_out=None):
+    def _read(image, lines_out=None, **_):
         if lines_out is not None and fake.text:
             lines_out.append({"text": fake.text, "conf": fake.conf, "box": [0.1, 0.3, 0.8, 0.4]})
         return fake.text, fake.conf

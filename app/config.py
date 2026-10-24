@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     htr_engine: str = "paddle"
     ocr_threads: int = 2  # CPU threads for the Paddle engine; keeps a laptop or small server responsive
     ocr_max_side: int = 1600  # longest image side Paddle's detector uses (lower = less memory)
+    # Paddle recognition model: "medium" (73 MB, downloaded once) reads messy, small, or faint
+    # handwriting clearly better than "small" (bundled); "small" fits a 512 MB server.
+    ocr_rec_model: str = "medium"
     # TrOCR (when htr_engine="trocr"): small runs on CPU; trocr-base-handwritten is more accurate but ~4x slower.
     htr_model: str = "microsoft/trocr-small-handwritten"
     calibration_file: Path = DATA_DIR / "calibration.json"

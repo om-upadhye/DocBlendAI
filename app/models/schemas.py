@@ -8,8 +8,9 @@ Entities: Document, RecognizedChunk, Query, RetrievalResult, Answer.
 """
 
 from enum import Enum
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 
 class FormatType(str, Enum):
@@ -70,7 +71,9 @@ class Query(_Schema):
     """A user question (input to Modules 5-7)."""
 
     query_id: str
-    question_text: str = Field(min_length=1)
+    # Spaces around the question are dropped, so a blank question is rejected before it reaches Gemini;
+    # the length cap keeps a pasted document from being sent as a question.
+    question_text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
     user_id: str
 
 

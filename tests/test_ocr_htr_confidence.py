@@ -343,7 +343,7 @@ def test_upload_format_hint_skips_detection(client, pdf_file, fake_ocr, fake_htr
 
 
 def test_upload_without_tesseract_is_503_and_cleans_up(client, pdf_file, tmp_path, monkeypatch) -> None:
-    def _missing(image, lines_out=None):
+    def _missing(image, lines_out=None, **_):
         raise ocr_extractor.OCRUnavailableError("Tesseract is not installed")
 
     monkeypatch.setattr(ocr_extractor, "ocr_image", _missing)
@@ -357,7 +357,7 @@ def test_upload_without_tesseract_is_503_and_cleans_up(client, pdf_file, tmp_pat
 
 @pytest.mark.parametrize("engine", ["paddle", "trocr"])
 def test_upload_without_htr_model_is_503(client, pdf_file, monkeypatch, engine) -> None:
-    def _missing(image, lines_out=None):
+    def _missing(image, lines_out=None, **_):
         raise htr_extractor.HTRUnavailableError("model not available")
 
     monkeypatch.setattr(settings, "htr_engine", engine)

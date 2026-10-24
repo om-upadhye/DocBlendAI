@@ -59,6 +59,68 @@ def test_paddle_groups_boxes_into_lines_in_reading_order(fake_rapidocr) -> None:
     assert lines[0]["box"] == [0.05, 0.1, 0.5, 0.132]  # union of the two boxes, as page fractions
 
 
+def test_paddle_reads_a_two_page_spread_page_by_page(fake_rapidocr) -> None:
+    # A photo of an open notebook: each left-page line sits beside a right-page line.
+    left = [((50, 100 + 60 * i, 450, 130 + 60 * i), f"left {i}", 0.9) for i in range(5)]
+    right = [((560, 102 + 60 * i, 950, 132 + 60 * i), f"right {i}", 0.9) for i in range(5)]
+    fake_rapidocr(left + right)
+    text, _ = paddle_extractor.read_image(Image.new("L", (1000, 1000), 255))
+    assert text.splitlines() == [f"left {i}" for i in range(5)] + [f"right {i}" for i in range(5)]
+
+
+def test_paddle_table_reread_keeps_rows_across(fake_rapidocr) -> None:
+    left = [((50, 100 + 60 * i, 450, 130 + 60 * i), f"key {i}", 0.9) for i in range(5)]
+    right = [((560, 102 + 60 * i, 950, 132 + 60 * i), f"value {i}", 0.9) for i in range(5)]
+    fake_rapidocr(left + right)
+    text, _ = paddle_extractor.read_image(Image.new("L", (1000, 1000), 255), columns=False)
+    assert text.splitlines() == [f"key {i} value {i}" for i in range(5)]
+
+
+def test_paddle_groups_sloping_lines() -> None:
+    # A tilted photo: each line drops 40 px across the page, more than the gap between lines.
+    def piece(x0, x1, y0, text):
+        slope = 0.1
+        return (x0, y0, x1, y0 + 25 + slope * (x1 - x0), text, 0.9, slope, 25.0)
+
+    pieces = [piece(0, 400, 50 * i, f"a{i}") for i in range(3)]
+    pieces += [piece(450, 850, 50 * i + 45, f"b{i}") for i in range(3)]
+    lines = paddle_extractor._group_lines(pieces)
+    assert [[b[4] for b in line] for line in lines] == [["a0", "b0"], ["a1", "b1"], ["a2", "b2"]]
+
+
+
+def test_paddle_straightens_a_tilted_two_page_photo(monkeypatch) -> None:
+    # Two pages photographed at a tilt: every line slopes 0.15, so the gap between the
+    # pages runs at an angle and no upright strip is free of text.
+    def quad(x0, y0, x1, slope=0.15, h=30):
+        return np.array([[x0, y0], [x1, y0 + slope * (x1 - x0)], [x1, y0 + slope * (x1 - x0) + h], [x0, y0 + h]], dtype=float)
+
+    detections = []
+    for i in range(6):
+        y = 100 + 70 * i
+        detections.append((quad(50, y, 450), f"left {i}", 0.9))
+        detections.append((quad(520, y + 0.15 * 470, 920), f"right {i}", 0.9))
+    result = SimpleNamespace(boxes=[q for q, _, _ in detections], txts=tuple(t for _, t, _ in detections), scores=tuple(s for *_, s in detections))
+    monkeypatch.setattr(paddle_extractor, "_engine", lambda threads: (lambda image: result))
+
+    text, _ = paddle_extractor.read_image(Image.new("L", (1000, 1000), 255))
+
+    assert text.splitlines() == [f"left {i}" for i in range(6)] + [f"right {i}" for i in range(6)]
+
+
+def test_paddle_drops_stray_cjk_characters(fake_rapidocr) -> None:
+    fake_rapidocr([((50, 100, 500, 130), "Quality attributes 如", 0.9), ((50, 200, 500, 230), "portability", 0.9)])
+    text, _ = paddle_extractor.read_image(Image.new("L", (1000, 1000), 255))
+    assert text == "Quality attributes\nportability"
+
+
+def test_paddle_pads_very_wide_images(fake_rapidocr, monkeypatch) -> None:
+    seen = []
+    monkeypatch.setattr(paddle_extractor, "_engine", lambda threads: (lambda image: seen.append(image.shape) or SimpleNamespace(boxes=None, txts=None, scores=None)))
+    paddle_extractor.read_image(Image.new("L", (2000, 400), 255))
+    assert seen == [(1500, 2000, 3)]  # padded to 3:4 so the detector does not merge lines
+
+
 def test_paddle_blank_page(fake_rapidocr) -> None:
     fake_rapidocr([])
     assert paddle_extractor.read_image(Image.new("L", (100, 100), 255)) == ("", 0.0)

@@ -11,6 +11,7 @@ Requires the Tesseract binary on the system (see PROJECT_NOTES.md).
 
 import logging
 import shutil
+from collections.abc import Callable
 from contextlib import closing
 from functools import lru_cache
 from pathlib import Path
@@ -119,7 +120,7 @@ def _quick_conf(image: Image.Image) -> float:
     return ocr_image(small)[1]
 
 
-def auto_orient(page: Image.Image) -> Image.Image:
+def auto_orient(page: Image.Image, score: Callable[[Image.Image], float] | None = None) -> Image.Image:
     """Turn a sideways or upside-down page upright.
 
     Phone photos and scans often arrive rotated with no (or a wrong) EXIF tag,
@@ -131,6 +132,11 @@ def auto_orient(page: Image.Image) -> Image.Image:
 
     Without Tesseract, or when OSD cannot decide (too little text), the page is
     returned unchanged.
+
+    score rates each candidate orientation (higher = reads better); the default is
+    Tesseract's confidence. Tesseract cannot judge handwriting (a handwritten page scores
+    near zero upright, and an upside-down stamp on it scores higher), so the handwriting
+    engine passes its own reader's score.
     """
     try:
         pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd(settings.tesseract_cmd)
@@ -145,7 +151,7 @@ def auto_orient(page: Image.Image) -> Image.Image:
     candidates = [page, page.rotate(-rotate, expand=True)]
     if rotate in (90, 270):
         candidates.append(page.rotate(rotate, expand=True))
-    best = max(candidates, key=_quick_conf)
+    best = max(candidates, key=score or _quick_conf)
     if best is not page:
         logger.info("Page was rotated (OSD suggested %d degrees); turned it upright", rotate)
     return best

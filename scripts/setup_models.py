@@ -53,7 +53,7 @@ def main() -> int:
 
     try:
         paddle_extractor._engine(settings.ocr_threads)
-        results.append(check("PaddleOCR engine", True, "PP-OCRv6 via RapidOCR / ONNX Runtime (models bundled)"))
+        results.append(check("PaddleOCR engine", True, "PP-OCRv6 via RapidOCR / ONNX Runtime (small models bundled; OCR_REC_MODEL=medium downloads once)"))
     except htr_extractor.HTRUnavailableError as e:
         results.append(check("PaddleOCR engine", settings.htr_engine != "paddle", str(e)))
 

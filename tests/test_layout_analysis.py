@@ -42,6 +42,17 @@ def test_dedupe_keeps_the_more_specific_region() -> None:
     assert [r["type"] for r in kept] == ["caption"]
 
 
+def test_reading_order_follows_the_readers_columns_on_a_tilted_two_page_photo() -> None:
+    # The pages meet right of the middle and the right page's top region starts higher than
+    # the left page's second region: the reader's columns decide, not the page middle.
+    def region(box, column):
+        return {"type": "text", "box": box, "score": 0.0, "lines": [{"text": f"c{column} {box[1]}", "box": box, "conf": 0.9, "column": column}]}
+
+    regions = [region([0.05, 0.30, 0.58, 0.5], 0), region([0.62, 0.05, 0.95, 0.25], 1), region([0.05, 0.05, 0.58, 0.25], 0)]
+    order = [(r["lines"][0]["column"], r["box"][1]) for r in layout_analysis.reading_order(regions)]
+    assert order == [(0, 0.05), (0, 0.30), (1, 0.05)]
+
+
 def test_reading_order_left_column_before_right_and_header_footer_at_the_ends() -> None:
     regions = [
         _region("footer", [0.4, 0.95, 0.6, 0.97]),

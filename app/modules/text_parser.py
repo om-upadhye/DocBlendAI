@@ -106,10 +106,17 @@ def parse_pptx(file_path: str) -> list[tuple[str, float]]:
 
 def parse_txt(file_path: str) -> list[tuple[str, float]]:
     raw = open(file_path, "rb").read()
-    if b"\x00" in raw[:4096]:
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):  # UTF-16 (Notepad's "Unicode"): has zero bytes, but is text
+        try:
+            text = raw.decode("utf-16")
+        except UnicodeDecodeError as e:
+            raise UnreadableFileError(f"damaged UTF-16 text: {e}") from e
+    elif b"\x00" in raw[:4096]:
         raise UnreadableFileError("not a text file (binary content)")
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = raw.decode("cp1252", errors="replace")  # common for Notepad files saved on Windows
+    else:
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("cp1252", errors="replace")  # common for Notepad files saved on Windows
+    text = text.replace("\r\n", "\n").replace("\r", "\n")  # Windows / old Mac line endings
     return [(text.strip(), TYPED_CONFIDENCE)]

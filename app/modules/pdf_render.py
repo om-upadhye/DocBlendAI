@@ -1,6 +1,6 @@
 """Supports Module 2 — turn PDF pages and image files into page images for OCR and HTR.
 
-Responsibility: yield one grayscale PIL image per page:
+Responsibility: yield one grayscale PIL image per page (highlighter removed, see to_gray):
 - PDF: rasterize with pypdfium2 (already a pdfplumber dependency, so no
   Poppler install is needed)
 - image files: each image is one page (multi-page TIFF: one page per frame);
@@ -14,7 +14,7 @@ Uses from schemas.py: nothing; returns PIL images to ocr_extractor/htr_extractor
 from collections.abc import Iterator
 
 import pypdfium2 as pdfium
-from PIL import Image, ImageFilter, ImageOps, ImageSequence, UnidentifiedImageError
+from PIL import Image, ImageChops, ImageFilter, ImageOps, ImageSequence, UnidentifiedImageError
 
 from app.modules.file_types import FileKind, UnreadableFileError, kind_of
 
@@ -36,6 +36,21 @@ def denoise(image: Image.Image) -> Image.Image:
     return image.filter(ImageFilter.MedianFilter(3))
 
 
+def to_gray(image: Image.Image) -> Image.Image:
+    """Grayscale that drops highlighter: each pixel's darker of red and green.
+
+    Students highlight their notes, and in ordinary grayscale a yellow (or orange,
+    pink, green) highlight becomes a gray band that swallows the pale ink under it,
+    so the text detector skips those lines. Highlighter is bright in red or green
+    or both and turns white here, while blue, black, and red ink stay dark.
+    """
+    if image.mode not in ("RGB", "RGBA", "P", "CMYK", "YCbCr"):
+        return image.convert("L")
+    rgb = image if image.mode == "RGB" else image.convert("RGB")
+    red, green, _ = rgb.split()
+    return ImageChops.darker(red, green)
+
+
 def render_pages(file_path: str, dpi: int, max_pages: int | None = None) -> Iterator[Image.Image]:
     """Yield each page (PDF page or image frame) as a grayscale PIL image at about the given DPI."""
     if kind_of(file_path) is FileKind.IMAGE:
@@ -48,7 +63,7 @@ def render_pages(file_path: str, dpi: int, max_pages: int | None = None) -> Iter
         for i in range(count):
             page = pdf[i]
             try:
-                yield page.render(scale=dpi / PDF_POINTS_PER_INCH).to_pil().convert("L")
+                yield to_gray(page.render(scale=dpi / PDF_POINTS_PER_INCH).to_pil())
             finally:
                 page.close()
     finally:
@@ -72,10 +87,10 @@ def _to_page(frame: Image.Image, dpi: int) -> Image.Image:
     # keeps a 12-megapixel phone photo well within a small server's memory.
     if frame.mode in ("RGBA", "LA", "PA") or "transparency" in frame.info:
         white = Image.new("RGBA", frame.size, (255, 255, 255, 255))
-        gray = Image.alpha_composite(white, frame.convert("RGBA")).convert("L")
-        gray.info = dict(frame.info)  # keep the EXIF orientation for exif_transpose
+        gray = to_gray(Image.alpha_composite(white, frame.convert("RGBA")))
     else:
-        gray = frame.convert("L")  # a new image: the frame object is reused by the iterator
+        gray = to_gray(frame)  # a new image: the frame object is reused by the iterator
+    gray.info = dict(frame.info)  # keep the EXIF orientation for exif_transpose
     page = ImageOps.exif_transpose(gray)
 
     # Scale the image to about an A4 page at this DPI: shrink big phone photos, and enlarge

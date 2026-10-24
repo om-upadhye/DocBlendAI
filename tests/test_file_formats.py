@@ -14,7 +14,7 @@ from pptx.util import Inches
 from app.models.schemas import FormatType
 from app.modules import file_types, format_detection, ocr_extractor, text_parser, vector_store
 from app.modules.ocr_extractor import auto_orient as REAL_AUTO_ORIENT  # bound before conftest's no-op patch
-from app.modules.pdf_render import PAGE_LONG_SIDE_INCHES, render_pages
+from app.modules.pdf_render import PAGE_LONG_SIDE_INCHES, render_pages, to_gray
 from tests.conftest import fake_embed
 
 # --- builders ---------------------------------------------------------------------
@@ -231,6 +231,24 @@ def test_txt_windows_encoding_falls_back(tmp_path) -> None:
     assert text_parser.parse(str(path)) == [("café résumé", 1.0)]
 
 
+def test_txt_utf16_and_windows_line_endings(tmp_path) -> None:
+    path = tmp_path / "notes.txt"
+    path.write_bytes("Stacks are LIFO.\r\nQueues are FIFO.".encode("utf-16"))  # Notepad's "Unicode", with BOM
+    assert text_parser.parse(str(path)) == [("Stacks are LIFO.\nQueues are FIFO.", 1.0)]
+
+
+def test_non_english_file_name_is_kept_and_downloads(client, tmp_path) -> None:
+    path = tmp_path / "नोट्स मराठी.txt"
+    path.write_text("Dijkstra's algorithm finds shortest paths in weighted graphs.", encoding="utf-8")
+
+    doc = _upload(client, path).json()
+
+    assert Path(doc["file_path"]).name.endswith("_नोट्स_मराठी.txt")
+    export = client.get(f"/documents/{doc['doc_id']}/export", params={"format": "md"})
+    assert export.status_code == 200
+    assert "filename*=UTF-8''" in export.headers["content-disposition"]
+
+
 def test_binary_file_named_txt_is_422(client, tmp_path) -> None:
     bad = tmp_path / "data.txt"
     bad.write_bytes(b"\x00\x01\x02 binary")
@@ -321,3 +339,12 @@ def test_resolve_format_rules(tmp_path, fake_ocr) -> None:
     assert format_detection.resolve_format(str(img), FormatType.HANDWRITTEN) is FormatType.HANDWRITTEN
     assert format_detection.resolve_format(str(img), FormatType.TYPED) is FormatType.SCANNED
     assert format_detection.resolve_format(str(img), None) is FormatType.SCANNED
+
+
+def test_to_gray_removes_highlighter_but_keeps_ink() -> None:
+    yellow, blue_ink, black_ink, paper = (250, 235, 60), (40, 60, 170), (20, 20, 20), (245, 245, 240)
+    img = Image.new("RGB", (4, 1))
+    img.putdata([yellow, blue_ink, black_ink, paper])
+    gray = [to_gray(img).getpixel((x, 0)) for x in range(4)]
+    assert gray[0] > 200 and gray[3] > 200  # highlighter turns as light as paper
+    assert gray[1] < 70 and gray[2] < 70  # ink stays dark

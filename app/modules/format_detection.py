@@ -28,6 +28,10 @@ OCR_SAMPLE_PAGES = 2
 _sample_reads: dict[tuple[str, FormatType], tuple[list[tuple[str, float]], list[dict]]] = {}
 MAX_SAMPLE_READS = 16
 
+# Tesseract can be "confident" about the few marks it reads on a blurred handwritten photo:
+# the scanned shortcut needs at least this many characters per sampled page, else HTR is tried too.
+MIN_OCR_CHARS_PER_PAGE = 12  # a blurred handwritten photo gave "5 ooo"; a printed page has hundreds
+
 # A page counts as "has a text layer" above this many extracted characters
 # (filters out stray page numbers / headers on scanned pages).
 MIN_TEXT_CHARS_PER_PAGE = 25
@@ -96,7 +100,8 @@ def detect_format(file_path: str) -> FormatType:
     ocr_pages = ocr_extractor.ocr_file(file_path, max_pages=OCR_SAMPLE_PAGES, layout=ocr_layout)
     _remember(file_path, FormatType.SCANNED, ocr_pages, ocr_layout)
     ocr_conf = confidence_capture.calibrate(_mean_conf(ocr_pages), FormatType.SCANNED)
-    if ocr_conf >= settings.scanned_min_ocr_conf:
+    ocr_chars = sum(len(text.strip()) for text, _ in ocr_pages)
+    if ocr_conf >= settings.scanned_min_ocr_conf and ocr_chars >= MIN_OCR_CHARS_PER_PAGE * max(1, len(ocr_pages)):
         return FormatType.SCANNED
 
     htr_layout: list[dict] = []

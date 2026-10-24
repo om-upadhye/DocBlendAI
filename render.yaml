@@ -23,3 +23,5 @@ services:
         value: "30"
       - key: OCR_THREADS
         value: "1"
+      - key: OCR_REC_MODEL
+        value: "small"    # the bundled model; "medium" reads handwriting better but needs more than 512 MB

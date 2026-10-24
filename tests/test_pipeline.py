@@ -491,6 +491,13 @@ def test_ask_answers_and_stores_everything(client, pdf_file, fake_llm, db_sessio
     assert Answer.model_validate(fetched.json()) == answer
 
 
+def test_ask_rejects_blank_and_overlong_questions(client, pdf_file, fake_llm) -> None:
+    _upload(client, pdf_file)
+    assert _ask(client, "   ", "q1").status_code == 422
+    assert _ask(client, "x" * 2001, "q2").status_code == 422
+    assert not fake_llm.prompts  # neither reached Gemini
+
+
 def test_ask_rejects_duplicate_query_id(client, pdf_file, fake_llm) -> None:
     _upload(client, pdf_file)
     assert _ask(client, "First?").status_code == 200
