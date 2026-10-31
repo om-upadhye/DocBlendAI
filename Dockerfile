@@ -45,6 +45,7 @@ RUN python -c "from rapid_table import ModelType, RapidTable, RapidTableInput; R
 
 COPY app ./app
 COPY data/calibration.json ./data/calibration.json
+COPY copyright_gui ./copyright_gui
 
 # Runtime data (database, vectors, uploads) lives in /data: mount a volume there
 # so documents survive container restarts. Calibration stays in the image.

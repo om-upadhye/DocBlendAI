@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DocBlendAI Project Showcase</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <nav class="topbar" aria-label="Showcase sections">
+    <strong>DocBlendAI</strong>
+    <div class="tabs">
+      <button class="is-active" data-screen="overview">Overview</button>
+      <button data-screen="extraction">Extraction</button>
+      <button data-screen="calibration">Calibration</button>
+      <button data-screen="performance">Performance</button>
+    </div>
+  </nav>
+
+  <main>
+    <section class="screen is-active" id="overview">
+      <header class="hero">
+        <p class="kicker">Project showcase</p>
+        <h1>Confidence-aware document understanding</h1>
+        <p>DocBlendAI turns typed, scanned, and handwritten documents into reliable answers grounded in source text.</p>
+      </header>
+      <div class="pipeline" aria-label="Document processing pipeline">
+        <article><b>01</b><h2>Input</h2><p>PDF, image, Word, PowerPoint or text</p></article>
+        <article><b>02</b><h2>Detect</h2><p>Typed, scanned or handwritten</p></article>
+        <article><b>03</b><h2>Extract</h2><p>OCR / HTR and layout analysis</p></article>
+        <article><b>04</b><h2>Calibrate</h2><p>Convert confidence into accuracy</p></article>
+        <article><b>05</b><h2>Retrieve</h2><p>Rank relevant evidence</p></article>
+        <article><b>06</b><h2>Answer</h2><p>Grounded response and reliability</p></article>
+      </div>
+    </section>
+
+    <section class="screen" id="extraction">
+      <header class="screen-title"><p class="kicker">Text extraction</p><h1>Three document paths, one pipeline</h1></header>
+      <div class="cards three">
+        <article><span>Typed</span><h2>Digital text parser</h2><p>Reads the existing PDF, DOCX, PPTX, or text layer.</p><code>Digital text → layout → chunks</code></article>
+        <article><span>Printed scan</span><h2>Tesseract OCR</h2><p>Recognises words and preserves page positions.</p><code>Page → OCR → word confidence</code></article>
+        <article><span>Handwriting</span><h2>PaddleOCR / TrOCR</h2><p>Detects text lines and recognises handwritten content.</p><code>Page → lines → HTR confidence</code></article>
+      </div>
+      <div class="algorithm"><b>Layout analysis</b><span>Titles</span><span>Paragraphs</span><span>Tables</span><span>Captions</span><span>Reading order</span></div>
+    </section>
+
+    <section class="screen" id="calibration">
+      <header class="screen-title"><p class="kicker">Confidence calibration</p><h1>From model score to expected character accuracy</h1></header>
+      <div class="calibration">
+        <article><span>OCR raw confidence</span><strong>0.70</strong><small>Extractor score</small></article>
+        <div class="arrow">→</div>
+        <article class="wide"><span>Piecewise-linear calibration</span><strong>0.70 → 0.73</strong><small>Fits raw confidence against observed character accuracy</small></article>
+        <div class="arrow">→</div>
+        <article><span>Calibrated confidence</span><strong>0.73</strong><small>Expected accuracy</small></article>
+      </div>
+      <div class="data-row"><span>Known curve points</span><b>0.00 → 0.00</b><b>0.70 → 0.73</b><b>0.94 → 0.99</b></div>
+      <p class="result">Held-out calibration error: <strong>0.062 → 0.013</strong> for scanned pages.</p>
+    </section>
+
+    <section class="screen" id="performance">
+      <header class="screen-title"><p class="kicker">Evaluation</p><h1>Measured project performance</h1></header>
+      <div class="metrics">
+        <article><strong>88%</strong><span>Overall answer correctness</span></article>
+        <article><strong>88%</strong><span>Retrieval hit rate</span></article>
+        <article><strong>100%</strong><span>Correct Certain answers</span></article>
+        <article><strong>100%</strong><span>Typed recognition accuracy</span></article>
+      </div>
+      <div class="table-wrap">
+        <table><thead><tr><th>Reliability tier</th><th>Answers</th><th>Correctness</th></tr></thead>
+        <tbody><tr><td>Certain</td><td>9</td><td>100%</td></tr><tr><td>Moderate</td><td>5</td><td>100%</td></tr><tr><td>Uncertain</td><td>4</td><td>50%</td></tr></tbody></table>
+      </div>
+    </section>
+  </main>
+
+  <footer>Darshana Rekhate · Gaurav Kalamkhede · Om Upadhye · PRMIT&amp;R Badnera</footer>
+  <script src="app.js"></script>
+</body>
+</html>
